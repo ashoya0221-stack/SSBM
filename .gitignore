@@ -1,0 +1,17 @@
+# Local game data and emulator captures
+/private/
+*.iso
+*.gcm
+*.rvz
+*.wbfs
+*.dol
+*.dat
+*.raw
+*.sav
+*.dtm
+*.bin
+
+# Local Python tooling
+__pycache__/
+.venv/
+
