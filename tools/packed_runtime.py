@@ -153,29 +153,16 @@ mflr 0
 reset_end:
 nop
 """
-    attack = """
-lwz 8,0x2c(3)
-lwz 9,0x1a58(8)
-cmpwi 9,0
-beq attack_end
-lwz 10,0x2c(9)
-lwz 0,4(10)
-lwz 8,0x10(10)
-cmpwi 0,27
-bne attack_check_ch
-cmpwi 8,386
-bne attack_end
-b attack_bind
-attack_check_ch:
-cmpwi 0,28
-bne attack_end
-cmpwi 8,381
-bne attack_end
-attack_bind:
-stw 3,0x1a58(10)
-attack_end:
+    # Audio setup marks requested character banks before loading them. Include
+    # mhands.ssm (bank 32) in that category, including debug character swaps.
+    # Native ABI: r3 = category flags; u64 mask = r5:r6. No mid-match bank unload.
+    sound_mask = """
+andi. 0,3,4
+beq sound_mask_done
+ori 5,5,1
+sound_mask_done:
 mflr 0
-attack_return:
+sound_mask_return:
 nop
 """
-    return reset, attack
+    return reset, sound_mask

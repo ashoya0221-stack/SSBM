@@ -48,6 +48,7 @@ class Runtime:
         self.impacts, self.launches, self.allocations = [], [], []
         self.joints = {}
         self.installed_hooks = set()
+        self.flowers, self.hit_effects = [], []
         self.rng = 3
         for i, obj in enumerate((self.MH, self.CH, self.A, self.B)):
             fp = 0x80500000 + i * 0x10000
@@ -120,18 +121,30 @@ class Runtime:
             self.throw_data[a] = self.read(ptr) & 0x7FFFFF
             self.throw_angles[a] = self.read(ptr + 4) >> 23
         elif name == "CREATE_HITBOX":
-            ptr = self.read(b + 8)
-            damage = self.read(ptr) & 0x3FF
-            element = (self.read(ptr + 16) >> 18) & 31
-            only_victim = bool(self.read(ptr + 20) & 0x80000)
-            self.hit_generation += 1
-            self.hitboxes[a] = (self.hit_generation, damage, element, only_victim)
+            raise AssertionError("v4 pummels must not depend on spatial hitboxes")
         elif name == "CLEAR_HITBOXES":
             self.hitboxes.pop(a, None)
         elif name == "PLAY_SFX":
             self.sounds.append((a, b, self.reg(5), self.reg(6)))
         elif name == "BOSS_LAUGH":
             self.sounds.append((self.fp(a), "laugh", 127, 64))
+        elif name == "TAKE_DAMAGE":
+            target = next(obj for obj in self.damage if self.fp(obj) == a)
+            bits = u.reg_read(UC_PPC_REG_FPR0 + 1)
+            damage = struct.unpack(">d", struct.pack(">Q", bits))[0]
+            hand = self.read(a + 0x1A58)
+            assert hand in (self.MH, self.CH)
+            element = 15 if hand == self.CH else 0
+            self.damage[target] += damage
+            self.pummels.append((hand, target, damage, element, True))
+        elif name == "RECORD_HIT":
+            assert self.read(self.fp(b) + 0x1A58) == a
+        elif name == "APPLY_FLOWER":
+            assert b == 7  # US 1.00 ABI uses an integer, not f1.
+            self.flowers.append((a, b))
+        elif name == "HIT_EFFECT":
+            position = struct.unpack(">3f", u.mem_read(b, 12))
+            self.hit_effects.append((a, position, self.reg(5)))
         elif name == "ANIM_SEEK":
             bits = u.reg_read(UC_PPC_REG_FPR0 + 1)
             frame = struct.unpack(">d", struct.pack(">Q", bits))[0]
@@ -257,22 +270,9 @@ class Runtime:
         self.collisions()
 
     def collisions(self):
-        # Model stage-independent overlap of victims bound to the same palm.
-        # Execute the emitted per-victim attack hook before checking native
-        # victim-only filtering, rather than awarding damage at hitbox creation.
-        for target in self.damage:
-            hand = self.read(self.fp(target) + 0x1A58)
-            if hand not in self.hitboxes:
-                continue
-            self.run_hook(4, {3: target})
-            generation, damage, element, only_victim = self.hitboxes[hand]
-            if (generation, target) in self.hit_once or element == 8:
-                continue
-            if only_victim and self.read(self.fp(hand) + 0x1A58) != target:
-                continue
-            self.hit_once.add((generation, target))
-            self.pummels.append((hand, target, damage, element, only_victim))
-            self.damage[target] += damage
+        # Deliberately no hurtbox overlap or collision awards. The v3 fixture
+        # assumed overlap and missed the actual no-damage report.
+        pass
 
 
 class EncodingTests(unittest.TestCase):
@@ -343,6 +343,34 @@ class RuntimeTests(unittest.TestCase):
             r.run_hook(0, {3: 377, 27: 5, 29: r.fp(r.CH)})
             self.assertEqual(r.reg(3), 380)
 
+    def test_character_audio_requests_include_hand_bank(self):
+        r = self.r
+        r.run_hook(4, {3: 4, 5: 0, 6: 1 << 22})
+        self.assertEqual(r.reg(5), 1)  # bank 32 in the high u64 mask
+        self.assertEqual(r.reg(6), 1 << 22)
+        r.run_hook(4, {3: 1, 5: 0, 6: 3})
+        self.assertEqual(r.reg(5), 0)
+
+    def test_release_occurs_during_downstroke_and_preserves_damage_until_then(self):
+        r = self.r
+        r.invoke("start_pair", r.MH)
+        r.capture(r.MH, r.A)
+        r.capture(r.CH, r.B)
+        r.finish_grab()
+        for frame in range(212):
+            r.squeeze_frame(frame)
+        self.assertEqual(r.damage, {r.A: 30, r.B: 35})
+        self.assertEqual(r.throws, [])
+        self.assertEqual(r.read(r.fp(r.A) + 0x1A58), r.MH)
+        self.assertEqual(r.read(r.fp(r.B) + 0x1A58), r.CH)
+        self.assertEqual(r.read(r.fp(r.MH) + 0x1914), 7)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x1914), 7)
+        self.assertEqual(r.read(r.fp(r.A) + 0x1918), 6)
+        self.assertEqual(r.read(r.fp(r.B) + 0x1918), 7)
+        r.squeeze_frame(212)
+        self.assertEqual(r.damage, {r.A: 42, r.B: 51})
+        self.assertEqual(len(r.throws), 2)
+
     def test_two_independent_victims_five_hits_and_both_throws(self):
         r = self.r
         r.invoke("start_pair", r.MH)
@@ -360,14 +388,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(all(p[1] == (r.A if p[0] == r.MH else r.B) for p in r.pummels))
         self.assertEqual(r.read(r.fp(r.MH) + 0x1A58), 0)
         self.assertEqual(r.read(r.fp(r.CH) + 0x1A58), 0)
-        for name, count in (("CREATE_HITBOX", 10), ("APPLY_THROW", 2)):
+        for name, count in (("TAKE_DAMAGE", 10), ("APPLY_THROW", 2)):
             events = [e for e in r.events if e[1] == name]
             self.assertEqual(len(events), count)
             for mh, ch in zip(events[::2], events[1::2]):
                 self.assertEqual(mh[0], ch[0], "both hands must act in the same callback")
-                self.assertEqual((mh[2], ch[2]), (r.MH, r.CH))
-        self.assertEqual([s[1] for s in r.sounds], ["laugh"] + [0x4E212] * 5 + [9])
+                expected = (r.fp(r.A), r.fp(r.B)) if name == "TAKE_DAMAGE" else (r.MH, r.CH)
+                self.assertEqual((mh[2], ch[2]), expected)
+        self.assertEqual([s[1] for s in r.sounds], ["laugh"] + [113, 113, 0x4E212] * 5 + [9])
         self.assertTrue(all(s[2:] == (127, 64) for s in r.sounds))
+        self.assertEqual(r.flowers, [(r.B, 7)] * 5)
+        self.assertEqual(len(r.hit_effects), 10)
 
     def test_whiff_recovers_both_hands(self):
         r = self.r

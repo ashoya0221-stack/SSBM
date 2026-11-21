@@ -15,7 +15,8 @@ from tools.inspect_dol import inspect
 
 try:
     from unicorn import Uc, UC_ARCH_PPC, UC_MODE_PPC32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
-    from unicorn.ppc_const import UC_PPC_REG_0, UC_PPC_REG_PC, UC_PPC_REG_LR, UC_PPC_REG_MSR
+    from unicorn.ppc_const import (UC_PPC_REG_0, UC_PPC_REG_PC, UC_PPC_REG_LR,
+                                   UC_PPC_REG_MSR, UC_PPC_REG_FPR0)
     AVAILABLE = True
 except ImportError:
     AVAILABLE = False
@@ -44,6 +45,7 @@ class NativeReaderTests(unittest.TestCase):
         self.u.reg_write(UC_PPC_REG_0 + 2, 0x804DD860)
         self.u.reg_write(UC_PPC_REG_0 + 13, 0x804D9520)
         self.write(self.OBJ + 0x2C, self.FP)
+        self.write(self.FP, self.OBJ)
         self.write(self.FP + 0x38, 0x3F800000)
         self.write(self.FP + 0x5E8, 0x80920000)
         self.write(0x80920000 + 18 * 16, 0x80930000)
@@ -53,6 +55,7 @@ class NativeReaderTests(unittest.TestCase):
         self.write(0x804D9520 - 0x3E70, 0)
         self.blobs = data_words(json.loads((ROOT / "config/restoration.json").read_text()))
         self.sounds = []
+        self.hud = []
         self.u.hook_add(UC_HOOK_CODE, self.subcall)
 
     def read(self, addr):
@@ -69,6 +72,25 @@ class NativeReaderTests(unittest.TestCase):
         elif address == FUNCTIONS["PLAY_SFX"]:
             self.sounds.append(tuple(u.reg_read(UC_PPC_REG_0 + i) for i in range(3, 7)))
             u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address == 0x80024104:  # lbAudioAx native hit-SFX dispatch
+            self.sounds.append(tuple(u.reg_read(UC_PPC_REG_0 + i) for i in range(3, 7)))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address in (0x80034398, 0x8003EC10, 0x800C88CC):
+            if address == 0x80034398:
+                self.hud.append(u.reg_read(UC_PPC_REG_0 + 5))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+
+    def call_native(self, address, registers, floats=None):
+        self.u.reg_write(UC_PPC_REG_0 + 1, self.STACK)
+        self.u.reg_write(UC_PPC_REG_LR, self.STOP)
+        for index, value in registers.items():
+            self.u.reg_write(UC_PPC_REG_0 + index, value)
+        for index, value in (floats or {}).items():
+            bits = struct.unpack(">Q", struct.pack(">d", value))[0]
+            self.u.reg_write(UC_PPC_REG_FPR0 + index, bits)
+        self.u.emu_start(address, self.STOP, count=20000)
+        self.assertEqual(self.u.reg_read(UC_PPC_REG_PC), self.STOP)
+        self.assertEqual(self.u.reg_read(UC_PPC_REG_0 + 1), self.STACK)
 
     def run_reader(self, name, words):
         self.u.mem_write(self.SCRIPT, struct.pack(">" + "I" * len(words), *words))
@@ -113,6 +135,39 @@ class NativeReaderTests(unittest.TestCase):
         self.run_reader(0x800719DC, self.blobs["GRAB_DATA_MH"][1:4])
         self.assertEqual(self.sounds, [(self.FP, 156, 127, 64)])
         self.assertEqual(self.read(self.EVENT + 8), self.SCRIPT + 12)
+
+    def test_actual_native_damage_increases_percent_and_updates_hud_five_times(self):
+        for amount in (6, 7):
+            self.write(self.FP + 0x1830, 0)
+            self.write(self.FP + 0x1A58, 0x80900100)
+            self.hud.clear()
+            for i in range(1, 6):
+                self.call_native(FUNCTIONS["TAKE_DAMAGE"], {3: self.FP}, {1: amount})
+                percent = struct.unpack(">f", self.u.mem_read(self.FP + 0x1830, 4))[0]
+                self.assertEqual(percent, amount * i)
+                self.assertEqual(self.read(self.FP + 0x1A58), 0x80900100)
+            self.assertEqual(self.hud, [amount * i for i in range(1, 6)])
+
+    def test_actual_hand_hit_sound_decodes_to_common_sound_113(self):
+        for hand in ("MH", "CH"):
+            self.run_reader("CREATE_HITBOX", self.blobs[f"PUMMEL_DATA_{hand}"])
+            self.call_native(0x80005BB0, {3: self.FP + 0x914, 4: 0})
+            self.assertEqual(self.sounds[-1][:3], (113, 127, 64))
+
+    def test_actual_audio_request_marks_mhands_bank_without_marking_other_characters(self):
+        from tools.build_gecko import assemble
+        from tools.packed_runtime import helper_sources
+        settings = json.loads((ROOT / "config/restoration.json").read_text())
+        prefix, _, _ = assemble(helper_sources(0)[1], settings)
+        # Run the emitted hook prefix and then the original DOL function + 4.
+        entry = 0x81200000
+        back = bytes.fromhex("3d808002618c6fb07d8903a64e800420")
+        self.u.mem_write(entry, prefix[:-4] + back)
+        for flags, expected in ((4, 1), (1, 0)):
+            self.u.mem_write(0x80431804, b"\0" * (55 * 4))
+            self.call_native(entry, {3: flags, 5: 0, 6: 0})
+            self.assertEqual(self.read(0x80431804 + 32 * 4), expected)
+            self.assertEqual(self.read(0x80431804 + 6 * 4), 0)
 
 
 if __name__ == "__main__":

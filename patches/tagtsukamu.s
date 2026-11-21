@@ -270,18 +270,6 @@ cmpw 26,8
 ble tick_done
 stw 26,4(27)
 bl sync_partner
-clear_due:
-lwz 8,12(27)
-cmpwi 8,0
-blt pulse_due
-cmpw 26,8
-blt pulse_due
-mr 3,31
-CALL CLEAR_HITBOXES
-mr 3,29
-CALL CLEAR_HITBOXES
-li 0,-1
-stw 0,12(27)
 pulse_due:
 lwz 8,8(27)
 cmpwi 8,5
@@ -302,8 +290,9 @@ bl play_sfx
 lwz 8,8(27)
 addi 8,8,1
 stw 8,8(27)
-addi 8,26,ACTIVE_FRAMES
-stw 8,12(27)
+li 0,HITLAG_DAMAGE
+stw 0,0x1914(30)
+stw 0,0x1914(28)
 throw_due:
 lwz 8,16(27)
 cmpwi 8,0
@@ -414,25 +403,11 @@ addi 4,1,0x10
 CALL SET_THROW_DATA
 LEAVE
 
+# Apply to owned victims directly; the invisible captive's hurtbox need not
+# overlap the palm's spatial hitbox. The visitor keeps both capture slots intact.
 emit_pummel:
-ENTER
-mr 31,3
-bl valid_victim
-cmpwi 3,0
-beq emit_done
-lwz 8,0x2c(31)
-lwz 0,4(8)
-addi 8,27,pummel_mh-pair_state
-cmpwi 0,28
-bne create_pummel
-addi 8,8,pummel_ch-pummel_mh
-create_pummel:
-stw 8,0x18(1)
-mr 3,31
-addi 4,1,0x10
-CALL CREATE_HITBOX
-emit_done:
-LEAVE
+li 4,2
+b visit_victims
 
 play_sfx:
 lwz 3,0x2c(3)
@@ -574,8 +549,11 @@ mr 28,9
 li 27,2
 visit_loop:
 lwz 26,0(28)
+cmpwi 29,2
+beq visit_keep_slot
 li 0,0
 stw 0,0(28)
+visit_keep_slot:
 cmpwi 26,0
 beq visit_next
 lwz 8,0x2c(26)
@@ -586,21 +564,84 @@ stw 26,0x1a58(30)
 stw 26,0x1a5c(30)
 mr 3,31
 mr 4,26
+cmpwi 29,2
+beq visit_pummel
 cmpwi 29,0
 bne visit_throw
 bl release_one
 b visit_next
 visit_throw:
 bl throw_one
+b visit_next
+visit_pummel:
+bl pummel_one
 visit_next:
 addi 28,28,4
 addi 27,27,-1
 cmpwi 27,0
 bne visit_loop
+cmpwi 29,2
+beq visit_preserve_capture
 li 0,0
 stw 0,0x2360(30)
 stw 0,0x1a58(30)
 stw 0,0x1a5c(30)
+b visit_done
+visit_preserve_capture:
+mr 3,31
+bl valid_victim
+visit_done:
+LEAVE
+
+# r3 = hand, r4 = victim. Use US 1.00 native damage/HUD and flower routines.
+pummel_one:
+ENTER
+mr 31,3
+mr 29,4
+lwz 30,0x2c(31)
+lwz 28,0x2c(29)
+PTR 26,pummel_params_mh
+lwz 0,4(30)
+cmpwi 0,28
+bne pummel_parameters
+addi 26,26,pummel_params_ch-pummel_params_mh
+pummel_parameters:
+lwz 27,4(26)
+lfs 1,0(26)
+mr 3,28
+CALL TAKE_DAMAGE
+mr 3,31
+mr 4,29
+lfs 1,0(26)
+CALL RECORD_HIT
+lwz 8,0x1918(28)
+cmpw 8,27
+bge pummel_hitlag_set
+stw 27,0x1918(28)
+pummel_hitlag_set:
+lwz 0,12(26)
+cmpwi 0,15
+bne pummel_feedback
+# US 1.00 takes integer damage in r4 (not the 1.02 float argument).
+mr 3,29
+mr 4,27
+CALL APPLY_FLOWER
+pummel_feedback:
+mr 3,29
+lwz 4,8(26)
+bl play_sfx
+lwz 3,0x5e8(30)
+lwz 3,0x120(3)
+li 4,0
+addi 5,1,0x30
+CALL JOINT_WORLD
+mr 3,29
+addi 4,1,0x30
+mr 5,27
+PTR 8,hit_effect_floats
+lfs 1,0(8)
+lfs 2,4(8)
+CALL HIT_EFFECT
 LEAVE
 
 release_one:
@@ -720,10 +761,13 @@ grab_mh:
 GRAB_DATA_MH
 grab_ch:
 GRAB_DATA_CH
-pummel_mh:
-PUMMEL_DATA_MH
-pummel_ch:
-PUMMEL_DATA_CH
+pummel_params_mh:
+PUMMEL_PARAMS_MH
+pummel_params_ch:
+PUMMEL_PARAMS_CH
+hit_effect_floats:
+.long 0
+.long 0x3f800000
 throw_mh:
 THROW_DATA_MH
 throw_ch:

@@ -1,16 +1,16 @@
 {
   "status": "experimental_unverified_in_dolphin",
-  "revision": 3,
-  "master": {"pummel_damage": 6, "pummel_element": 0, "throw_damage": 12},
-  "crazy": {"pummel_damage": 7, "pummel_element": 15, "throw_damage": 16},
+  "revision": 4,
+  "master": {"pummel_damage": 6, "pummel_element": 0, "pummel_hit_sound": 113, "throw_damage": 12},
+  "crazy": {"pummel_damage": 7, "pummel_element": 15, "pummel_hit_sound": 113, "throw_damage": 16},
   "pummel_frames": [49, 78, 107, 136, 165],
   "pummel_active_frames": 3,
-  "throw_frame": 241,
+  "throw_frame": 212,
   "grab_start_frame": 46,
   "grab_end_frame": 74,
   "grab_radius": 24,
   "slam_angle": 270,
   "release_drop": 12.0,
   "geometry_note": "Widen the resident radius 9.375 to 24 on bone 18. CH mirrors the native grab local-axis convention. The reference video's invisible geometry remains unknown.",
-  "timing_note": "MH is the event coordinator. Finger flexion peaks in both supplied AJ squeeze motions occur at 49,78,107,136,165. Release at the first fully open phase (241); this release frame is reconstructed, not the author's code. Both animations run at their native rate."
+  "timing_note": "MH coordinates five owned-victim damage pulses at native flexion frames 49,78,107,136,165. Release at 212, during the steep downward wrist motion (210 to 214), replacing the late 241 release. Native hitlag requests pause both hands. Release frame is reconstructed from motion and comparison footage, not the author's code."
 }

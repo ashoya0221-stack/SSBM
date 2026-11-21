@@ -47,6 +47,8 @@ FUNCTIONS = {
     "GROUND_IMPACT": 0x80097628, "SET_AIRBORNE": 0x8007D338,
     "ALLOC": 0x8037D330, "FLUSH_CODE": 0x80342EDC,
     "INVALIDATE_CODE": 0x80342FA4,
+    "TAKE_DAMAGE": 0x8006CB20, "RECORD_HIT": 0x80078648,
+    "APPLY_FLOWER": 0x8007F9C4, "HIT_EFFECT": 0x80078264,
 }
 
 
@@ -64,10 +66,15 @@ def data_words(settings):
             0x14190013, 0x00200007, 0x08000000 | end, 0x40000000, 0,
         ]
         element = settings[hand]["pummel_element"]
+        damage = settings[hand]["pummel_damage"]
+        output[f"PUMMEL_PARAMS_{suffix}"] = [
+            struct.unpack(">I", struct.pack(">f", damage))[0], damage,
+            settings[hand]["pummel_hit_sound"], element,
+        ]
         output[f"PUMMEL_DATA_{suffix}"] = [
             0x2C089000 | settings[hand]["pummel_damage"], 0x096003E8,
             0xFC1807D0 if mirrored else 0xFC18F830, 0x28000012,
-            (element << 18) | (0x10F if mirrored else 0x12),
+            (element << 18) | 0x10F,
             0x00080000,  # native reader's following-word victim-only flag
         ]
         # MH's resident tag throw and CH's resident reverse throw knockback.
@@ -85,6 +92,7 @@ def expand(source, settings):
         constants[f"PUMMEL_{i}"] = frame
     constants["ACTIVE_FRAMES"] = settings["pummel_active_frames"]
     constants["THROW_FRAME"] = settings["throw_frame"]
+    constants["HITLAG_DAMAGE"] = max(settings[h]["pummel_damage"] for h in ("master", "crazy"))
     constants["SLAM_DROP_BITS"] = struct.unpack(">I", struct.pack(">f", settings["release_drop"]))[0]
     blobs = data_words(settings)
     calls = Counter(re.findall(r"^\s*(?:CALL|TAIL) (\w+)\s*$", source, re.M))
@@ -233,12 +241,12 @@ def build(settings, force_combo=False):
     back = bytes.fromhex("3d808014618cfb307d8903a64e800420")
     packed = pack_runtime(runtime + back)
     loader, loader_labels, _ = assemble(loader_source(packed, len(runtime) + len(back)), settings)
-    reset, attack = helper_sources(loader_labels["loaded_core"])
+    reset, sound_mask = helper_sources(loader_labels["loaded_core"])
     reset_code, _, _ = assemble(reset, settings)
-    attack_code, _, _ = assemble(attack, settings)
+    sound_code, _, _ = assemble(sound_mask, settings)
     lines += c2(0x8014FB2C, loader)
     lines += c2(0x80373574, reset_code)
-    lines += c2(0x8006CA3C, attack_code)
+    lines += c2(0x80026FAC, sound_code)
     lines.append("E0000000 80008000")
     # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
     # and the 8-byte code-list header. Do not silently emit an oversized code.
