@@ -102,7 +102,7 @@ class NativeReaderTests(unittest.TestCase):
             self.assertAlmostEqual(radius, 24, places=2)
 
     def test_actual_throw_decoder_keeps_native_throw_knockback(self):
-        for hand, damage, angle in (("MH", 12, 30), ("CH", 16, 60)):
+        for hand, damage, angle in (("MH", 12, 270), ("CH", 16, 270)):
             self.run_reader("SET_THROW_DATA", self.blobs[f"THROW_DATA_{hand}"])
             hb = self.FP + 0xDF4
             self.assertEqual(self.read(hb + 8), damage)

@@ -17,10 +17,12 @@ try:
     from .fighter_dat import FighterDat
     from .inspect_dol import inspect
     from .inspect_animations import inspect_pair
+    from .packed_runtime import pack_runtime, loader_source, helper_sources
 except ImportError:
     from fighter_dat import FighterDat
     from inspect_dol import inspect
     from inspect_animations import inspect_pair
+    from packed_runtime import pack_runtime, loader_source, helper_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +43,10 @@ FUNCTIONS = {
     "RANDI": 0x8037E6CC,
     "PLAY_SFX": 0x80087EA0, "BOSS_LAUGH": 0x8015BC44,
     "ANIM_SEEK": 0x8006EA8C, "ANIM_EVALUATE": 0x8006E858,
+    "JOINT_WORLD": 0x8000B1CC, "GROUND_PROBE": 0x80081B2C,
+    "GROUND_IMPACT": 0x80097628, "SET_AIRBORNE": 0x8007D338,
+    "ALLOC": 0x8037D330, "FLUSH_CODE": 0x80342EDC,
+    "INVALIDATE_CODE": 0x80342FA4,
 }
 
 
@@ -67,7 +73,7 @@ def data_words(settings):
         # MH's resident tag throw and CH's resident reverse throw knockback.
         output[f"THROW_DATA_{suffix}"] = [
             0x88000000 | settings[hand]["throw_damage"],
-            0x1E118000 if mirrored else 0x0F190000,
+            (settings["slam_angle"] << 23) | (0x118000 if mirrored else 0x190000),
             0x1E002000 if mirrored else 0x19002000,
         ]
     return output
@@ -79,6 +85,7 @@ def expand(source, settings):
         constants[f"PUMMEL_{i}"] = frame
     constants["ACTIVE_FRAMES"] = settings["pummel_active_frames"]
     constants["THROW_FRAME"] = settings["throw_frame"]
+    constants["SLAM_DROP_BITS"] = struct.unpack(">I", struct.pack(">f", settings["release_drop"]))[0]
     blobs = data_words(settings)
     calls = Counter(re.findall(r"^\s*(?:CALL|TAIL) (\w+)\s*$", source, re.M))
     thunks = {name for name, count in calls.items() if count > 1}
@@ -166,6 +173,8 @@ def build(settings, force_combo=False):
         raise ValueError("invalid grab window")
     if not 0 < settings["grab_radius"] < 128:
         raise ValueError("invalid grab radius")
+    if settings["slam_angle"] != 270 or not 0 < settings["release_drop"] < 64:
+        raise ValueError("invalid downward slam parameters")
     for hand in ("master", "crazy"):
         if not (1 <= settings[hand]["pummel_damage"] <= 1023
                 and 0 <= settings[hand]["pummel_element"] <= 16
@@ -218,7 +227,18 @@ def build(settings, force_combo=False):
     lines = ["2014F8E0 7C0802A6", "20155A84 7C0802A6"]
     lines += c2(0x80155CCC, selector)
     lines += c2(0x80155FDC, requester)
-    lines += c2(0x8014FB2C, runtime)
+    # The core lives in game-allocated memory and expires with the native heap.
+    # Compress our own code to leave the default Gecko area usable by test codes.
+    # Return to the original caller after the entry trampoline has run.
+    back = bytes.fromhex("3d808014618cfb307d8903a64e800420")
+    packed = pack_runtime(runtime + back)
+    loader, loader_labels, _ = assemble(loader_source(packed, len(runtime) + len(back)), settings)
+    reset, attack = helper_sources(loader_labels["loaded_core"])
+    reset_code, _, _ = assemble(reset, settings)
+    attack_code, _, _ = assemble(attack, settings)
+    lines += c2(0x8014FB2C, loader)
+    lines += c2(0x80373574, reset_code)
+    lines += c2(0x8006CA3C, attack_code)
     lines.append("E0000000 80008000")
     # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
     # and the 8-byte code-list header. Do not silently emit an oversized code.

@@ -40,6 +40,12 @@ bl start_hand
 stw 29,0x1a5c(30)
 stw 31,0x1a5c(28)
 PTR 27,pair_state
+li 0,0
+addi 8,27,victim_slots-pair_state
+stw 0,0(8)
+stw 0,4(8)
+stw 0,8(8)
+stw 0,12(8)
 bl reset_pair_clock
 b start_done
 start_cancel:
@@ -103,13 +109,39 @@ li 6,0
 CALL INIT_GRAB
 LEAVE
 
+# Keep native acceptance open until this hand has captured two distinct victims.
 on_grab:
-lwz 3,0x2c(3)
-li 0,1
-stw 0,0x2360(3)
-lbz 0,0x221e(3)
+ENTER
+bl get_slots
+lwz 10,0x1a58(8)
+lwz 0,0(9)
+cmpw 0,10
+beq grabbed_done
+cmpwi 0,0
+beq grabbed_first
+stw 10,4(9)
+lbz 0,0x221e(8)
 andi. 0,0,0xfd
-stb 0,0x221e(3)
+stb 0,0x221e(8)
+b grabbed_flag
+grabbed_first:
+stw 10,0(9)
+grabbed_flag:
+li 0,1
+stw 0,0x2360(8)
+grabbed_done:
+LEAVE
+
+# r3 stays the hand; r8 = Fighter; r9 = two payload-owned victim slots.
+get_slots:
+mflr 11
+lwz 8,0x2c(3)
+lwz 10,4(8)
+addi 10,10,-27
+slwi 10,10,3
+PTR 9,victim_slots
+add 9,9,10
+mtlr 11
 blr
 
 # Change only animation and callbacks; command scripts are initialized normally.
@@ -173,9 +205,11 @@ beq finish_secondary
 lwz 8,0x2c(3)
 lwz 0,0x10(8)
 cmpwi 0,385
-blt finish_secondary
+blt finish_dead_master
 cmpwi 0,387
 ble tick_done
+finish_dead_master:
+bl cleanup_hand
 finish_secondary:
 mr 3,31
 bl cleanup_hand
@@ -496,29 +530,82 @@ mtlr 0
 addi 1,1,0x40
 blr
 
-# Returns victim GObj only if its reciprocal captor is this hand.
+# The native scan overwrites Fighter.victim_gobj while seeking victim #2.
+# Look up persistent slots, verify reciprocal ownership, and restore a primary.
 valid_victim:
-lwz 8,0x2c(3)
-lwz 9,0x1a58(8)
-cmpwi 9,0
-beq invalid_victim
-lwz 10,0x2c(9)
+mflr 12
+bl get_slots
+mtlr 12
+lwz 10,0(9)
+cmpwi 10,0
+beq try_second
+lwz 11,0x2c(10)
+lwz 11,0x1a58(11)
+cmpw 11,3
+beq valid_found
+try_second:
+lwz 10,4(9)
 cmpwi 10,0
 beq invalid_victim
-lwz 10,0x1a58(10)
-cmpw 10,3
+lwz 11,0x2c(10)
+lwz 11,0x1a58(11)
+cmpw 11,3
 bne invalid_victim
-mr 3,9
+valid_found:
+stw 10,0x1a58(8)
+mr 3,10
 blr
 invalid_victim:
 li 3,0
 blr
 
 release_victim:
+li 4,0
+b visit_victims
+throw_victim:
+li 4,1
+visit_victims:
 ENTER
-bl valid_victim
-cmpwi 3,0
-beq release_done
+mr 31,3
+mr 29,4
+bl get_slots
+mr 30,8
+mr 28,9
+li 27,2
+visit_loop:
+lwz 26,0(28)
+li 0,0
+stw 0,0(28)
+cmpwi 26,0
+beq visit_next
+lwz 8,0x2c(26)
+lwz 0,0x1a58(8)
+cmpw 0,31
+bne visit_next
+stw 26,0x1a58(30)
+stw 26,0x1a5c(30)
+mr 3,31
+mr 4,26
+cmpwi 29,0
+bne visit_throw
+bl release_one
+b visit_next
+visit_throw:
+bl throw_one
+visit_next:
+addi 28,28,4
+addi 27,27,-1
+cmpwi 27,0
+bne visit_loop
+li 0,0
+stw 0,0x2360(30)
+stw 0,0x1a58(30)
+stw 0,0x1a5c(30)
+LEAVE
+
+release_one:
+ENTER
+mr 3,4
 lwz 8,0x2c(3)
 lbz 0,0x221e(8)
 andi. 0,0,0x7f
@@ -527,19 +614,16 @@ lfs 0,0x2c(8)
 fneg 0,0
 stfs 0,0x2c(8)
 CALL CAPTURE_CUT
-release_done:
 LEAVE
 
-throw_victim:
+throw_one:
 ENTER
 mr 31,3
 lwz 30,0x2c(31)
-bl valid_victim
-cmpwi 3,0
-beq throw_done
-mr 29,3
+mr 29,4
 lwz 28,0x2c(29)
 lwz 0,4(30)
+mr 3,29
 cmpwi 0,28
 beq ch_thrown
 CALL MH_THROWN
@@ -553,18 +637,60 @@ CALL SET_GRAB_MASK
 mr 3,31
 mr 4,29
 CALL APPLY_THROW
-lfs 0,0x1844(28)
-fneg 0,0
-stfs 0,0x1844(28)
+# Detach beneath the grabbing palm, using its animated bone position.
+lwz 3,0x5e8(30)
+lwz 3,0x120(3)
+li 4,0
+addi 5,1,0x30
+CALL JOINT_WORLD
+PTR 8,slam_drop
+lfs 0,0(8)
+lfs 1,0x38(30)
+fmuls 0,0,1
+lfs 1,0x34(1)
+fsubs 1,1,0
+stfs 1,0x34(1)
+lwz 8,0x30(1)
+lwz 9,0x34(1)
+li 0,0
+stw 8,0xb0(28)
+stw 9,0xb4(28)
+stw 0,0xb8(28)
+# Set collision history at the new release point; do not sweep from the palm.
+stw 8,0x6f4(28)
+stw 9,0x6f8(28)
+stw 0,0x6fc(28)
+stw 8,0x70c(28)
+stw 9,0x710(28)
+stw 0,0x714(28)
 mr 3,29
 li 4,0
 li 5,0
 CALL LAUNCH_VICTIM
-li 0,0
-stw 0,0x2360(30)
-stw 0,0x1a58(30)
-stw 0,0x1a5c(30)
-throw_done:
+PTR 8,slam_collision
+stw 8,0x21a8(28)
+LEAVE
+
+# Native stage collision decides contact, including moving/sloped platforms.
+# Only the first floor contact launches upward; normal collision resumes after it.
+slam_collision:
+ENTER
+mr 31,3
+CALL GROUND_PROBE
+cmpwi 3,0
+beq slam_no_floor
+mr 3,31
+CALL GROUND_IMPACT
+lwz 30,0x2c(31)
+li 0,90
+stw 0,0x1848(30)
+mr 3,30
+CALL SET_AIRBORNE
+mr 3,31
+li 4,0
+li 5,1
+CALL LAUNCH_VICTIM
+slam_no_floor:
 LEAVE
 
 # Data use no absolute relocations. Pummel following word sets victim-only filter.
@@ -581,6 +707,13 @@ pulse_frames:
 .long PUMMEL_3
 .long PUMMEL_4
 .long PUMMEL_5
+victim_slots:
+.long 0
+.long 0
+.long 0
+.long 0
+slam_drop:
+.long SLAM_DROP_BITS
 empty_script:
 .long 0
 grab_mh:

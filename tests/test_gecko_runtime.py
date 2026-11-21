@@ -38,9 +38,16 @@ class Runtime:
         self.damage = {self.A: 0, self.B: 0}
         self.pummels, self.throws, self.cuts = [], [], []
         self.throw_data = {}
+        self.throw_angles = {}
         self.moves = []
         self.sounds, self.events = [], []
         self.invocation = 0
+        self.hitboxes, self.hit_once = {}, set()
+        self.hit_generation = 0
+        self.grounded = set()
+        self.impacts, self.launches, self.allocations = [], [], []
+        self.joints = {}
+        self.installed_hooks = set()
         self.rng = 3
         for i, obj in enumerate((self.MH, self.CH, self.A, self.B)):
             fp = 0x80500000 + i * 0x10000
@@ -48,10 +55,15 @@ class Runtime:
             self.write(fp + 4, 27 + i if i < 2 else 0)
             self.write(fp + 0x10, 341)
             self.write(fp + 0x1844, 0x3F800000)
+            self.write(fp + 0x38, 0x3F800000)
             if i < 2:
                 data = 0x80550000 + i * 0x10000
                 self.write(fp + 0x10C, data)
                 self.write(data + 0xC, 0x80600000 + i * 0x10000)
+                parts, joint = 0x80620000 + i * 0x1000, 0x80650000 + i * 0x100
+                self.write(fp + 0x5E8, parts)
+                self.write(parts + 0x120, joint)
+                self.joints[joint] = (25.0 if i == 0 else -25.0, 50.0, 0.0)
         self.write(self.fp(self.CH) + 0x10, 384)
         self.write(self.fp(self.CH) + 0x2250, 380)
         self.u.hook_add(UC_HOOK_CODE, self.game_call)
@@ -106,17 +118,16 @@ class Runtime:
         elif name == "SET_THROW_DATA":
             ptr = self.read(b + 8)
             self.throw_data[a] = self.read(ptr) & 0x7FFFFF
+            self.throw_angles[a] = self.read(ptr + 4) >> 23
         elif name == "CREATE_HITBOX":
             ptr = self.read(b + 8)
             damage = self.read(ptr) & 0x3FF
             element = (self.read(ptr + 16) >> 18) & 31
             only_victim = bool(self.read(ptr + 20) & 0x80000)
-            target = self.read(self.fp(a) + 0x1A58)
-            self.pummels.append((a, target, damage, element, only_victim))
-            # The real ftColl damage scan excludes Catch (8); the v1 harness
-            # incorrectly awarded damage to that element and hid the MH bug.
-            if target in self.damage and element != 8 and only_victim:
-                self.damage[target] += damage
+            self.hit_generation += 1
+            self.hitboxes[a] = (self.hit_generation, damage, element, only_victim)
+        elif name == "CLEAR_HITBOXES":
+            self.hitboxes.pop(a, None)
         elif name == "PLAY_SFX":
             self.sounds.append((a, b, self.reg(5), self.reg(6)))
         elif name == "BOSS_LAUGH":
@@ -126,15 +137,41 @@ class Runtime:
             frame = struct.unpack(">d", struct.pack(">Q", bits))[0]
             self.set_frame(a, frame)
         elif name == "APPLY_THROW":
+            assert self.read(self.fp(a) + 0x1A58) == b
+            assert self.read(self.fp(b) + 0x1A58) == a
             self.damage[b] += self.throw_data[a]
             self.throws.append((a, b, self.throw_data[a]))
+            self.write(self.fp(b) + 0x1848, self.throw_angles[a])
+            self.write(self.fp(a) + 0x1A58, 0)
+            self.write(self.fp(b) + 0x1A58, 0)
+        elif name == "JOINT_WORLD":
+            u.mem_write(self.reg(5), struct.pack(">3f", *self.joints[a]))
+        elif name == "GROUND_PROBE":
+            result = int(a in self.grounded)
+        elif name == "GROUND_IMPACT":
+            self.impacts.append(a)
+        elif name == "SET_AIRBORNE":
+            self.write(a + 0xE0, 1)
+        elif name == "LAUNCH_VICTIM":
+            fp = self.fp(a)
+            angle = self.read(fp + 0x1848)
+            self.launches.append((a, angle, self.reg(5)))
+            self.write(fp + 0x21A8, 0x8008FE00)  # native damage state's callback
+            self.write(fp + 0x10, 90 if angle == 270 else 87)
+            u.mem_write(fp + 0x221E, b"\0")
+        elif name in ("MH_THROWN", "CH_THROWN"):
+            u.mem_write(self.fp(a) + 0x221E, b"\0")
+        elif name == "ALLOC":
+            self.allocations.append(a)
+            result = self.BASE
+        elif name in ("FLUSH_CODE", "INVALIDATE_CODE"):
+            pass
         elif name == "CAPTURE_CUT":
             self.cuts.append(a)
             self.write(self.fp(a) + 0x1A58, 0)
         elif name in ("MASTER_IDLE", "CRAZY_IDLE"):
             self.write(self.fp(a) + 0x10, 341)
-        elif name not in ("ANIM_INIT", "ANIM_EVALUATE", "CLEAR_HITBOXES",
-                           "MH_THROWN", "CH_THROWN", "LAUNCH_VICTIM"):
+        elif name not in ("ANIM_INIT", "ANIM_EVALUATE"):
             raise AssertionError(f"unexpected unmodeled call: {name}")
         # Game calls may destroy all volatile GPRs; emitted code must obey the ABI.
         for index in range(4, 13):
@@ -163,10 +200,15 @@ class Runtime:
             raise AssertionError("stack pointer was not restored")
 
     def capture(self, hand, target):
+        if not self.u.mem_read(self.fp(hand) + 0x221E, 1)[0] & 2:
+            return False
+        if self.read(self.fp(target) + 0x1A58):
+            return False
         self.write(self.fp(hand) + 0x1A58, target)
         self.write(self.fp(target) + 0x1A58, hand)
         self.u.mem_write(self.fp(target) + 0x221E, b"\x80")
         self.invoke("on_grab", hand)
+        return True
 
     def run_hook(self, index, register_values, stack_vector=None):
         lines = self.text.splitlines()
@@ -182,7 +224,10 @@ class Runtime:
         base = self.BASE + 0x10000 * (index + 1)
         last = base + 4 * (len(words) - 1)
         words[-1] = 0x48000000 | ((address + 4 - last) & 0x3FFFFFC)
-        self.u.mem_write(base, struct.pack(">" + "I" * len(words), *words))
+        if index not in self.installed_hooks:
+            self.u.mem_write(base, struct.pack(">" + "I" * len(words), *words))
+            self.write(address, 0x48000000 | ((base - address) & 0x3FFFFFC))
+            self.installed_hooks.add(index)
         self.u.reg_write(UC_PPC_REG_0 + 1, self.STACK)
         for i, value in register_values.items():
             self.u.reg_write(UC_PPC_REG_0 + i, value)
@@ -193,7 +238,7 @@ class Runtime:
             # The original caller loads f0 with the vector's Z before the hook.
             self.u.reg_write(UC_PPC_REG_FPR0,
                              struct.unpack(">Q", struct.pack(">d", vector[2]))[0])
-        self.u.emu_start(base, address + 4, count=20000)
+        self.u.emu_start(base, address + 4, count=100000)
         if self.u.reg_read(UC_PPC_REG_PC) != address + 4:
             raise AssertionError("hook did not return to the original instruction stream")
         if self.reg(1) != self.STACK:
@@ -209,6 +254,25 @@ class Runtime:
         self.set_frame(self.CH, frame if ch_frame is None else ch_frame)
         self.invoke("tag_anim", self.MH)
         self.invoke("tag_anim", self.CH)
+        self.collisions()
+
+    def collisions(self):
+        # Model stage-independent overlap of victims bound to the same palm.
+        # Execute the emitted per-victim attack hook before checking native
+        # victim-only filtering, rather than awarding damage at hitbox creation.
+        for target in self.damage:
+            hand = self.read(self.fp(target) + 0x1A58)
+            if hand not in self.hitboxes:
+                continue
+            self.run_hook(4, {3: target})
+            generation, damage, element, only_victim = self.hitboxes[hand]
+            if (generation, target) in self.hit_once or element == 8:
+                continue
+            if only_victim and self.read(self.fp(hand) + 0x1A58) != target:
+                continue
+            self.hit_once.add((generation, target))
+            self.pummels.append((hand, target, damage, element, only_victim))
+            self.damage[target] += damage
 
 
 class EncodingTests(unittest.TestCase):
@@ -269,7 +333,7 @@ class RuntimeTests(unittest.TestCase):
         r.run_hook(1, {31: r.CH}, (0x24, (-44.0, 30.0, 0.0)))
         r.run_hook(2, {28: r.MH}, (0x2C, (44.0, 30.0, 0.0)))
         self.assertEqual(r.moves[0], (r.CH, 0x8015A114, (-44.0, 30.0, 0.0)))
-        self.assertEqual(r.moves[1], (r.MH, r.BASE + 0x30000 + r.symbols["start_pair"],
+        self.assertEqual(r.moves[1], (r.MH, r.BASE + r.symbols["start_pair"],
                                     (44.0, 30.0, 0.0)))
 
     def test_combo_test_variant_always_selects_restored_move(self):
@@ -434,6 +498,68 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(r.throws, [])
         self.assertEqual(r.read(r.fp(r.MH) + 0x10), 341)
         self.assertEqual(r.read(r.fp(r.CH) + 0x10), 341)
+
+    def test_either_hand_can_keep_two_victims_and_damage_and_slam_both(self):
+        for hand, direct in ((Runtime.MH, 42), (Runtime.CH, 51)):
+            r = Runtime()
+            r.invoke("start_pair", r.MH)
+            self.assertTrue(r.capture(hand, r.A))
+            self.assertTrue(r.u.mem_read(r.fp(hand) + 0x221E, 1)[0] & 2)
+            # A following native grab scan can clear the hand's single pointer.
+            r.write(r.fp(hand) + 0x1A58, 0)
+            self.assertTrue(r.capture(hand, r.B))
+            self.assertFalse(r.u.mem_read(r.fp(hand) + 0x221E, 1)[0] & 2)
+            self.assertFalse(r.capture(r.CH if hand == r.MH else r.MH, r.A))
+            r.finish_grab()
+            for frame in range(SETTINGS["throw_frame"] + 1):
+                r.squeeze_frame(frame)
+            self.assertEqual(r.damage, {r.A: direct, r.B: direct})
+            self.assertEqual(len(r.pummels), 10)
+            self.assertEqual([(h, v) for h, v, _ in r.throws], [(hand, r.A), (hand, r.B)])
+            events = [e for e in r.events if e[1] == "APPLY_THROW"]
+            self.assertEqual(events[0][0], events[1][0])
+            self.assertEqual(r.launches, [(r.A, 270, 0), (r.B, 270, 0)])
+            for victim in (r.A, r.B):
+                pos = struct.unpack(">3f", r.u.mem_read(r.fp(victim) + 0xB0, 12))
+                self.assertEqual(pos, (25.0 if hand == r.MH else -25.0, 38.0, 0.0))
+                self.assertEqual(r.read(r.fp(victim) + 0x21A8),
+                                 r.BASE + r.symbols["slam_collision"])
+            self.assertEqual(r.impacts, [])
+            r.invoke("slam_collision", r.A)
+            self.assertEqual(r.impacts, [])
+            r.grounded.add(r.A)
+            r.invoke("slam_collision", r.A)
+            self.assertEqual(r.impacts, [r.A])
+            self.assertEqual(r.launches[-1], (r.A, 90, 1))
+            self.assertEqual(r.read(r.fp(r.A) + 0x21A8), 0x8008FE00)
+            self.assertEqual(r.damage, {r.A: direct, r.B: direct})
+
+    def test_hand_death_releases_both_victims_owned_by_that_hand(self):
+        r = self.r
+        r.invoke("start_pair", r.MH)
+        r.capture(r.MH, r.A)
+        r.capture(r.MH, r.B)
+        r.write(r.fp(r.MH) + 0x10, 344)
+        r.invoke("tag_anim", r.CH)
+        self.assertEqual(r.cuts, [r.A, r.B])
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 344)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 341)
+
+    def test_packed_loader_roundtrip_reuse_and_heap_reset(self):
+        r = self.r
+        r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
+        r.run_hook(2, {28: r.MH}, (0x2C, (44.0, 30.0, 0.0)))
+        self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
+        self.assertEqual(len(r.allocations), 1)
+        self.assertEqual([e[1] for e in r.events if e[1] in ("FLUSH_CODE", "INVALIDATE_CODE")],
+                         ["FLUSH_CODE", "INVALIDATE_CODE"])
+        r.run_hook(2, {28: r.MH}, (0x2C, (44.0, 30.0, 0.0)))
+        self.assertEqual(len(r.allocations), 1)
+        r.run_hook(3, {3: 0x80600000, 4: 0x81700000})
+        r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
+        r.run_hook(2, {28: r.MH}, (0x2C, (44.0, 30.0, 0.0)))
+        self.assertEqual(len(r.allocations), 2)
+        self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
 
 
 if __name__ == "__main__":
