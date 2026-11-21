@@ -49,6 +49,7 @@ FUNCTIONS = {
     "INVALIDATE_CODE": 0x80342FA4,
     "TAKE_DAMAGE": 0x8006CB20, "RECORD_HIT": 0x80078648,
     "APPLY_FLOWER": 0x8007F9C4, "HIT_EFFECT": 0x80078264,
+    "RESET_HIT_VICTIMS": 0x80008440,
 }
 
 
@@ -91,6 +92,8 @@ def expand(source, settings):
     for i, frame in enumerate(settings["pummel_frames"], 1):
         constants[f"PUMMEL_{i}"] = frame
     constants["ACTIVE_FRAMES"] = settings["pummel_active_frames"]
+    constants["GRAB_START"] = settings["grab_start_frame"]
+    constants["GRAB_END"] = settings["grab_end_frame"]
     constants["THROW_FRAME"] = settings["throw_frame"]
     constants["HITLAG_DAMAGE"] = max(settings[h]["pummel_damage"] for h in ("master", "crazy"))
     constants["SLAM_DROP_BITS"] = struct.unpack(">I", struct.pack(">f", settings["release_drop"]))[0]
@@ -199,6 +202,11 @@ def build(settings, force_combo=False, manual=False):
         entry = entry.replace("mr 3,28", "mr 3,30")
         entry = entry.replace("addi 5,1,0x8c", "addi 5,1,0x70")
         source = entry + "start_pair:\n" + body
+        source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
+                                "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
+        source = source.replace("# Data use no absolute relocations.",
+                                (ROOT / "patches/manual_grab.s").read_text()
+                                + "\n# Data use no absolute relocations.")
     runtime, symbols, expanded = assemble(source, settings)
     selection = """
         stw 27,0x224c(29)

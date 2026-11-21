@@ -28,6 +28,7 @@ class Runtime:
     B = 0x80400300
 
     def __init__(self, force_combo=False, manual=False):
+        self.manual = manual
         self.text, self.code, self.symbols, _ = build(SETTINGS, force_combo, manual)
         self.u = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
         self.u.mem_map(0x80000000, 0x1800000)
@@ -121,9 +122,16 @@ class Runtime:
             self.throw_data[a] = self.read(ptr) & 0x7FFFFF
             self.throw_angles[a] = self.read(ptr + 4) >> 23
         elif name == "CREATE_HITBOX":
-            raise AssertionError("v4 pummels must not depend on spatial hitboxes")
+            if not self.manual:
+                raise AssertionError("v4 pummels must not depend on spatial hitboxes")
+            ptr = self.read(b + 8)
+            assert self.read(ptr + 16) == 0x00200007  # catch, never a pummel
+            self.write(self.fp(a) + 0x914, 1)
+        elif name == "RESET_HIT_VICTIMS":
+            assert self.manual
         elif name == "CLEAR_HITBOXES":
             self.hitboxes.pop(a, None)
+            self.write(self.fp(a) + 0x914, 0)
         elif name == "PLAY_SFX":
             self.sounds.append((a, b, self.reg(5), self.reg(6)))
         elif name == "BOSS_LAUGH":
@@ -292,8 +300,8 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(words["GRAB_DATA_CH"][2] >> 16, 24 * 256)
 
     def test_default_dolphin_code_list_capacity(self):
-        for forced in (False, True):
-            code, *_ = build(SETTINGS, forced)
+        for forced, manual in ((False, False), (True, False), (False, True)):
+            code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
     def test_c2_branch_back_slot_and_line_count(self):
@@ -346,6 +354,39 @@ class RuntimeTests(unittest.TestCase):
         r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
         r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(len(r.allocations), 2)
+
+    def test_manual_animation_callback_registers_and_rearms_both_catches(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        for frame in (45, 46, 47, 74):
+            for hand in (r.MH, r.CH):
+                r.set_frame(hand, frame)
+                r.invoke("tag_anim", hand)
+            expected = int(46 <= frame < 74)
+            for hand in (r.MH, r.CH):
+                self.assertEqual(r.read(r.fp(hand) + 0x914), expected)
+                self.assertEqual(bool(r.u.mem_read(r.fp(hand) + 0x221E, 1)[0] & 2),
+                                 bool(expected))
+        creates = [e for e in r.events if e[1] == "CREATE_HITBOX"]
+        self.assertEqual([e[2] for e in creates], [r.MH, r.CH])
+        resets = [e for e in r.events if e[1] == "RESET_HIT_VICTIMS"]
+        self.assertEqual(len(resets), 4)
+
+    def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
+        for hand, damage in ((Runtime.MH, 42), (Runtime.CH, 51)):
+            r = Runtime(manual=True)
+            r.invoke("start_pair", r.MH)
+            for obj in (r.MH, r.CH):
+                r.set_frame(obj, 46)
+                r.invoke("tag_anim", obj)
+            r.capture(hand, r.A)
+            r.capture(hand, r.B)
+            r.finish_grab()
+            for frame in range(SETTINGS["throw_frame"] + 1):
+                r.squeeze_frame(frame)
+            self.assertEqual(r.damage, {r.A: damage, r.B: damage})
+            self.assertEqual(len(r.throws), 2)
+            self.assertEqual(len([s for s in r.sounds if s[1] == 113]), 10)
 
     def test_combo_test_variant_always_selects_restored_move(self):
         r = Runtime(force_combo=True)
