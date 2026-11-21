@@ -1,0 +1,32 @@
+{
+  "name": "User-supplied Melee US 1.00 research baseline",
+  "sha256": "2f4e499c05943c64a89a2978488456a9d88582a0b662eb1ec9878eb0a94c479b",
+  "sha1": "418c726d6b09c80abbbd2398e1c451ed86d682e5",
+  "build_string": "DATE Oct 31 2001  TIME 04:35:57",
+  "version_note": "Build date matches 1.00; US region is user-reported. This is not an independent retail-dump certification.",
+  "checks": [
+    {"name": "master_idle_prologue", "address": "0x8014f8e0", "expected": "7c0802a6900100049421ffa8bf4100407c7c1b78"},
+    {"name": "crazy_idle_prologue", "address": "0x80155a84", "expected": "7c0802a6900100049421ffb0bf4100387c7f1b78"},
+    {"name": "master_fourth_combo_branch", "address": "0x8014fb18", "expected": "c03d013cc002a4acd021002cc03d0140d0210030d001003448000398"},
+    {"name": "crazy_fourth_combo_branch", "address": "0x80155fc8", "expected": "c03c011cc002a67cd0210024c03c0120d0210028d001002c480000fc"},
+    {"name": "crazy_combo_group", "address": "0x803d2a26", "expected": "0f03"}
+  ],
+  "addresses": {
+    "master_idle_anim": "0x8014f8e0",
+    "crazy_idle_anim": "0x80155a84",
+    "master_action_table": "0x803d1b78",
+    "crazy_action_table": "0x803d2340",
+    "master_ai_table": "0x803d2218",
+    "crazy_ai_table": "0x803d29c0",
+    "master_fourth_combo_branch": "0x8014fb18",
+    "crazy_fourth_combo_branch": "0x80155fc8",
+    "master_move_with_callback": "0x80150474",
+    "crazy_move_with_callback": "0x8015b080",
+    "master_return_to_idle": "0x801506c8",
+    "crazy_return_to_idle": "0x8015b2d4",
+    "get_hand_gobj": "0x8015ba34",
+    "change_motion_state": "0x80069288",
+    "animation_init": "0x8006ea48",
+    "animation_frames_remaining": "0x8006f0dc"
+  }
+}
