@@ -1,0 +1,12 @@
+{
+  "status": "experimental_unverified_in_dolphin",
+  "master": {"pummel_damage": 6, "pummel_element": 8, "throw_damage": 12},
+  "crazy": {"pummel_damage": 7, "pummel_element": 15, "throw_damage": 16},
+  "pummel_ticks": [30, 60, 90, 120, 150],
+  "pummel_active_ticks": 3,
+  "throw_tick": 210,
+  "grab_start_frame": 46,
+  "grab_end_frame": 74,
+  "geometry_note": "MH grab geometry from supplied DAT; CH mirrored using its native grab's local-axis convention. Exact creator hitboxes are not observable in the video.",
+  "timing_note": "Initial reconstruction in actor ticks, paused by game hitlag. Needs comparison in Dolphin; not an exact frame measurement of the creator's code."
+}

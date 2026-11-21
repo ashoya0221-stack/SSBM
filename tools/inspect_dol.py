@@ -94,7 +94,7 @@ def inspect(data, profile):
             "size_bytes": len(data), "entry": f"0x{dol.entry:08x}",
             "checks": checks, "addresses": profile["addresses"],
             "motion_state_rows": motion_rows,
-            "patch_status": "not_implemented"}
+            "patch_status": "experimental_not_verified_in_dolphin"}
 
 
 def main():

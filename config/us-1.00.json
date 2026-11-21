@@ -9,7 +9,10 @@
     {"name": "crazy_idle_prologue", "address": "0x80155a84", "expected": "7c0802a6900100049421ffb0bf4100387c7f1b78"},
     {"name": "master_fourth_combo_branch", "address": "0x8014fb18", "expected": "c03d013cc002a4acd021002cc03d0140d0210030d001003448000398"},
     {"name": "crazy_fourth_combo_branch", "address": "0x80155fc8", "expected": "c03c011cc002a67cd0210024c03c0120d0210028d001002c480000fc"},
-    {"name": "crazy_combo_group", "address": "0x803d2a26", "expected": "0f03"}
+    {"name": "crazy_combo_group", "address": "0x803d2a26", "expected": "0f03"},
+    {"name": "selector_hook", "address": "0x80155ccc", "expected": "937d224c"},
+    {"name": "crazy_request_hook", "address": "0x80155fdc", "expected": "d001002c"},
+    {"name": "master_start_hook", "address": "0x8014fb2c", "expected": "d0010034"}
   ],
   "addresses": {
     "master_idle_anim": "0x8014f8e0",
