@@ -56,6 +56,7 @@ class NativeReaderTests(unittest.TestCase):
         self.blobs = data_words(json.loads((ROOT / "config/restoration.json").read_text()))
         self.sounds = []
         self.hud = []
+        self.moves = []
         self.u.hook_add(UC_HOOK_CODE, self.subcall)
 
     def read(self, addr):
@@ -79,8 +80,20 @@ class NativeReaderTests(unittest.TestCase):
             if address == 0x80034398:
                 self.hud.append(u.reg_read(UC_PPC_REG_0 + 5))
             u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address in (FUNCTIONS["MASTER_MOVE"], FUNCTIONS["CRAZY_MOVE"]):
+            obj, callback, ptr = (u.reg_read(UC_PPC_REG_0 + i) for i in (3, 4, 5))
+            self.moves.append((obj, callback, struct.unpack(">3f", u.mem_read(ptr, 12))))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address == 0x8015BB10:  # native query of CH's requested team move
+            u.reg_write(UC_PPC_REG_0 + 3, self.read(self.FP + 0x2250))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address == FUNCTIONS["ALLOC"]:
+            u.reg_write(UC_PPC_REG_0 + 3, 0x81300000)
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address in (FUNCTIONS["FLUSH_CODE"], FUNCTIONS["INVALIDATE_CODE"]):
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
 
-    def call_native(self, address, registers, floats=None):
+    def call_native(self, address, registers, floats=None, count=20000):
         self.u.reg_write(UC_PPC_REG_0 + 1, self.STACK)
         self.u.reg_write(UC_PPC_REG_LR, self.STOP)
         for index, value in registers.items():
@@ -88,7 +101,7 @@ class NativeReaderTests(unittest.TestCase):
         for index, value in (floats or {}).items():
             bits = struct.unpack(">Q", struct.pack(">d", value))[0]
             self.u.reg_write(UC_PPC_REG_FPR0 + index, bits)
-        self.u.emu_start(address, self.STOP, count=20000)
+        self.u.emu_start(address, self.STOP, count=count)
         self.assertEqual(self.u.reg_read(UC_PPC_REG_PC), self.STOP)
         self.assertEqual(self.u.reg_read(UC_PPC_REG_0 + 1), self.STACK)
 
@@ -168,6 +181,42 @@ class NativeReaderTests(unittest.TestCase):
             self.call_native(entry, {3: flags, 5: 0, 6: 0})
             self.assertEqual(self.read(0x80431804 + 32 * 4), expected)
             self.assertEqual(self.read(0x80431804 + 6 * 4), 0)
+
+    def setup_manual_input(self):
+        self.write(self.FP + 0x10C, 0x80960000)
+        self.write(0x80960000 + 4, 0x80961000)
+        for offset, value in ((0x11C, -44.0), (0x120, 30.0), (0x13C, 44.0), (0x140, 30.0)):
+            self.u.mem_write(0x80961000 + offset, struct.pack(">f", value))
+
+    def test_actual_4p_y_dpad_left_requests_tagtsukamu(self):
+        self.setup_manual_input()
+        self.write(0x804BFE2C + 0xCC, 0x0801)  # pad 4: Y + D-pad left
+        self.call_native(0x80156158, {3: self.OBJ})
+        self.assertEqual(self.read(self.FP + 0x2250), 380)
+        self.assertEqual(self.moves, [(self.OBJ, 0x8015A114, (-44.0, 30.0, 0.0))])
+
+    def test_actual_3p_y_dpad_up_reaches_manual_loader_and_start_callback(self):
+        from tools.build_gecko import build
+        self.setup_manual_input()
+        self.write(self.FP + 0x2250, 380)
+        self.write(0x804BFE2C + 0x88, 0x0808)  # pad 3: Y + D-pad up
+        settings = json.loads((ROOT / "config/restoration.json").read_text())
+        text, core, symbols, _ = build(settings, manual=True)
+        lines, cursor, index = text.splitlines(), 2, 0
+        while lines[cursor].startswith("C2"):
+            head, count = (int(v, 16) for v in lines[cursor].split())
+            address, base = 0x80000000 | (head & 0x1FFFFFF), 0x81200000 + index * 0x10000
+            words = [int(w, 16) for line in lines[cursor+1:cursor+1+count] for w in line.split()]
+            last = base + 4 * (len(words) - 1)
+            words[-1] = 0x48000000 | ((address + 4 - last) & 0x3FFFFFC)
+            self.u.mem_write(base, struct.pack(">" + "I" * len(words), *words))
+            self.write(address, 0x48000000 | ((base - address) & 0x3FFFFFC))
+            cursor += count + 1
+            index += 1
+        self.call_native(0x8014FF44, {3: self.OBJ}, count=100000)
+        self.assertEqual(self.moves, [(self.OBJ, 0x81300000 + symbols["start_pair"],
+                                       (44.0, 30.0, 0.0))])
+        self.assertEqual(bytes(self.u.mem_read(0x81300000, len(core))), core)
 
 
 if __name__ == "__main__":

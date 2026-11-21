@@ -22,6 +22,12 @@
 
 - [通常版](dist/Tagtsukamu-US-1.00.txt)
 - [連携選択を固定する確認版](dist/Tagtsukamu-US-1.00-combo-test.txt)
+- [3P・4Pで操作する手動版](dist/Tagtsukamu-US-1.00-manual.txt)
+
+手動版では、3Pをマスターハンド、4PをクレイジーハンドのHuman操作にします。
+**4PでY＋十字キー左**を押し、CHの移動が終わって待機したら、
+**3PでY＋十字キー上**を押します。[手動操作の説明](docs/manual-controls.md)を参照してください。
+通常版・確認版・手動版のうち、有効にするのは1つだけです。
 
 基準の[参考動画](https://www.youtube.com/watch?v=do8EdYx5OaE)は、ユーザーから提供された
 動画ファイルで確認しました。動画作者の非公開の判定サイズや正確な発生フレームを

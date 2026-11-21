@@ -27,8 +27,8 @@ class Runtime:
     A = 0x80400200
     B = 0x80400300
 
-    def __init__(self, force_combo=False):
-        self.text, self.code, self.symbols, _ = build(SETTINGS, force_combo)
+    def __init__(self, force_combo=False, manual=False):
+        self.text, self.code, self.symbols, _ = build(SETTINGS, force_combo, manual)
         self.u = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
         self.u.mem_map(0x80000000, 0x1800000)
         self.u.mem_write(self.BASE, self.code)
@@ -335,6 +335,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(r.moves[0], (r.CH, 0x8015A114, (-44.0, 30.0, 0.0)))
         self.assertEqual(r.moves[1], (r.MH, r.BASE + r.symbols["start_pair"],
                                     (44.0, 30.0, 0.0)))
+
+    def test_manual_loader_uses_human_stack_and_resets_on_heap_recreation(self):
+        r = Runtime(manual=True)
+        r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
+        self.assertEqual(r.moves[-1], (r.MH, r.BASE + r.symbols["start_pair"],
+                                     (44.0, 30.0, 0.0)))
+        self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
+        r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
+        self.assertEqual(len(r.allocations), 2)
 
     def test_combo_test_variant_always_selects_restored_move(self):
         r = Runtime(force_combo=True)

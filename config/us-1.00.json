@@ -54,6 +54,16 @@
       "name": "character_audio_request_hook",
       "address": "0x80026fac",
       "expected": "7c0802a6"
+    },
+    {
+      "name": "master_manual_tag_hook",
+      "address": "0x80150320",
+      "expected": "d0010018"
+    },
+    {
+      "name": "crazy_manual_input_prologue",
+      "address": "0x80156158",
+      "expected": "7c0802a6"
     }
   ],
   "addresses": {
@@ -72,6 +82,9 @@
     "get_hand_gobj": "0x8015ba34",
     "change_motion_state": "0x80069288",
     "animation_init": "0x8006ea48",
-    "animation_frames_remaining": "0x8006f0dc"
+    "animation_frames_remaining": "0x8006f0dc",
+    "master_manual_input": "0x8014ff44",
+    "crazy_manual_input": "0x80156158",
+    "master_manual_tag_hook": "0x80150320"
   }
 }
