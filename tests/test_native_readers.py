@@ -195,11 +195,8 @@ class NativeReaderTests(unittest.TestCase):
         self.assertEqual(self.read(self.FP + 0x2250), 380)
         self.assertEqual(self.moves, [(self.OBJ, 0x8015A114, (-44.0, 30.0, 0.0))])
 
-    def test_actual_3p_y_dpad_up_reaches_manual_loader_and_start_callback(self):
+    def install_manual_hooks(self):
         from tools.build_gecko import build
-        self.setup_manual_input()
-        self.write(self.FP + 0x2250, 380)
-        self.write(0x804BFE2C + 0x88, 0x0808)  # pad 3: Y + D-pad up
         settings = json.loads((ROOT / "config/restoration.json").read_text())
         text, core, symbols, _ = build(settings, manual=True)
         lines, cursor, index = text.splitlines(), 2, 0
@@ -213,10 +210,20 @@ class NativeReaderTests(unittest.TestCase):
             self.write(address, 0x48000000 | ((base - address) & 0x3FFFFFC))
             cursor += count + 1
             index += 1
-        self.call_native(0x8014FF44, {3: self.OBJ}, count=100000)
-        self.assertEqual(self.moves, [(self.OBJ, 0x81300000 + symbols["start_pair"],
-                                       (44.0, 30.0, 0.0))])
-        self.assertEqual(bytes(self.u.mem_read(0x81300000, len(core))), core)
+        return core, symbols
+
+    def test_actual_3p_y_dpad_up_preserves_native_other_team_commands(self):
+        self.setup_manual_input()
+        self.install_manual_hooks()
+        for request, callback, offset in ((377, 0x80154844, 0x124),
+                                           (378, 0x80154998, 0x12C),
+                                           (379, 0x80154B14, 0x134)):
+            self.moves.clear()
+            self.write(self.FP + 0x2250, request)
+            self.u.mem_write(0x80961000 + offset, struct.pack(">2f", 44, 30))
+            self.write(0x804BFE2C + 0x88, 0x0808)
+            self.call_native(0x8014FF44, {3: self.OBJ})
+            self.assertEqual(self.moves, [(self.OBJ, callback, (44.0, 30.0, 0.0))])
 
 
 if __name__ == "__main__":

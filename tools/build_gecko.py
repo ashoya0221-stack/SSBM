@@ -193,14 +193,10 @@ def build(settings, force_combo=False, manual=False):
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
     source = (ROOT / "patches/tagtsukamu.s").read_text()
-    hook = 0x80150320 if manual else 0x8014FB2C
+    hook = 0x8015A114 if manual else 0x8014FB2C
     if manual:
-        # Human MH's missing fourth-combo branch has its own GObj register and
-        # position on the original stack (confirmed in the supplied US 1.00 DOL).
-        entry, body = source.split("start_pair:\n", 1)
-        entry = entry.replace("stfs 0,0x34(1)", "stfs 0,0x18(1)")
-        entry = entry.replace("mr 3,28", "mr 3,30")
-        entry = entry.replace("addi 5,1,0x8c", "addi 5,1,0x70")
+        _, body = source.split("start_pair:\n", 1)
+        entry = (ROOT / "patches/manual_entry.s").read_text()
         source = entry + "start_pair:\n" + body
         source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
                                 "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
@@ -261,7 +257,8 @@ def build(settings, force_combo=False, manual=False):
     back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
                        0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
     packed = pack_runtime(runtime + back)
-    loader, loader_labels, _ = assemble(loader_source(packed, len(runtime) + len(back)), settings)
+    loader, loader_labels, _ = assemble(
+        loader_source(packed, len(runtime) + len(back), preserve_r3=manual), settings)
     reset, sound_mask = helper_sources(loader_labels["loaded_core"], hook)
     reset_code, _, _ = assemble(reset, settings)
     sound_code, _, _ = assemble(sound_mask, settings)

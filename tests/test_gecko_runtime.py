@@ -61,6 +61,9 @@ class Runtime:
             if i < 2:
                 data = 0x80550000 + i * 0x10000
                 self.write(fp + 0x10C, data)
+                attrs = 0x80640000 + i * 0x1000
+                self.write(data + 4, attrs)
+                self.u.mem_write(attrs + 0x13C, struct.pack(">2f", 44, 30))
                 self.write(data + 0xC, 0x80600000 + i * 0x10000)
                 parts, joint = 0x80620000 + i * 0x1000, 0x80650000 + i * 0x100
                 self.write(fp + 0x5E8, parts)
@@ -344,16 +347,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(r.moves[1], (r.MH, r.BASE + r.symbols["start_pair"],
                                     (44.0, 30.0, 0.0)))
 
-    def test_manual_loader_uses_human_stack_and_resets_on_heap_recreation(self):
+    def test_manual_arrival_loader_preserves_gobj_and_resets_on_heap_recreation(self):
         r = Runtime(manual=True)
         r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
-        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
+        r.run_hook(0, {3: r.CH})
         self.assertEqual(r.moves[-1], (r.MH, r.BASE + r.symbols["start_pair"],
                                      (44.0, 30.0, 0.0)))
+        self.assertEqual(r.reg(3), r.CH)
         self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
         r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
-        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
+        r.run_hook(0, {3: r.CH})
         self.assertEqual(len(r.allocations), 2)
+        self.assertEqual(r.reg(3), r.CH)
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)

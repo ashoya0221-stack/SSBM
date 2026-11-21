@@ -64,6 +64,11 @@
       "name": "crazy_manual_input_prologue",
       "address": "0x80156158",
       "expected": "7c0802a6"
+    },
+    {
+      "name": "crazy_team_wait_initializer_hook",
+      "address": "0x8015a114",
+      "expected": "7c0802a638800180"
     }
   ],
   "addresses": {
@@ -85,6 +90,7 @@
     "animation_frames_remaining": "0x8006f0dc",
     "master_manual_input": "0x8014ff44",
     "crazy_manual_input": "0x80156158",
-    "master_manual_tag_hook": "0x80150320"
+    "master_manual_tag_hook": "0x80150320",
+    "crazy_team_wait_initializer": "0x8015a114"
   }
 }

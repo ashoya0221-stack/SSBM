@@ -63,7 +63,7 @@ def unpack_runtime(data, size):
     return bytes(out)
 
 
-def loader_source(packed, size):
+def loader_source(packed, size, preserve_r3=False):
     if not 0 < size < 32768 or len(unpack_runtime(packed, size)) != size:
         raise ValueError("invalid runtime size")
     padded = packed + b"\0" * (-len(packed) % 4)
@@ -72,6 +72,7 @@ def loader_source(packed, size):
     return f"""
 ENTER
 stfd 0,0x30(1)
+{"stw 3,0x38(1)" if preserve_r3 else ""}
 PTR 30,loaded_core
 lwz 29,0(30)
 cmpwi 29,0
@@ -125,6 +126,7 @@ stw 29,0(30)
 loader_ready:
 mr 12,29
 lfd 0,0x30(1)
+{"lwz 3,0x38(1)" if preserve_r3 else ""}
 LEAVE_HOOK
 mtctr 12
 bctr
