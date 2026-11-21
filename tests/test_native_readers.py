@@ -1,0 +1,119 @@
+"""Optional integration checks using the user's actual US 1.00 DOL instructions.
+
+Set SSBM_MAIN_DOL to a local main.dol. No binary is included in the repository.
+Collision detection, rendering, audio output, and full combat are not emulated.
+"""
+
+import json
+import os
+from pathlib import Path
+import struct
+import unittest
+
+from tools.build_gecko import ROOT, FUNCTIONS, data_words
+from tools.inspect_dol import inspect
+
+try:
+    from unicorn import Uc, UC_ARCH_PPC, UC_MODE_PPC32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
+    from unicorn.ppc_const import UC_PPC_REG_0, UC_PPC_REG_PC, UC_PPC_REG_LR, UC_PPC_REG_MSR
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
+
+
+DOL_PATH = os.environ.get("SSBM_MAIN_DOL")
+
+
+@unittest.skipUnless(AVAILABLE and DOL_PATH, "requires Unicorn and SSBM_MAIN_DOL")
+class NativeReaderTests(unittest.TestCase):
+    OBJ, FP, EVENT, SCRIPT = 0x80900000, 0x80910000, 0x80940000, 0x80941000
+    STACK, STOP = 0x81700000, 0x817FF000
+
+    def setUp(self):
+        data = Path(DOL_PATH).read_bytes()
+        profile = json.loads((ROOT / "config/us-1.00.json").read_text())
+        inspect(data, profile)
+        from tools.inspect_dol import Dol
+        dol = Dol(data)
+        self.u = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
+        self.u.mem_map(0x80000000, 0x1800000)
+        for s in dol.sections:
+            self.u.mem_write(s.address, data[s.offset:s.offset + s.size])
+        self.u.reg_write(UC_PPC_REG_MSR, 0x2000)
+        # SDA bases loaded by this DOL's startup at 80005348/80005350.
+        self.u.reg_write(UC_PPC_REG_0 + 2, 0x804DD860)
+        self.u.reg_write(UC_PPC_REG_0 + 13, 0x804D9520)
+        self.write(self.OBJ + 0x2C, self.FP)
+        self.write(self.FP + 0x38, 0x3F800000)
+        self.write(self.FP + 0x5E8, 0x80920000)
+        self.write(0x80920000 + 18 * 16, 0x80930000)
+        self.write(0x804D9520 - 0x514C, 0x80950000)
+        self.write(0x80950000 + 0x7E8, 400)
+        self.write(0x80950000 + 0x7EC, 420)
+        self.write(0x804D9520 - 0x3E70, 0)
+        self.blobs = data_words(json.loads((ROOT / "config/restoration.json").read_text()))
+        self.sounds = []
+        self.u.hook_add(UC_HOOK_CODE, self.subcall)
+
+    def read(self, addr):
+        return struct.unpack(">I", self.u.mem_read(addr, 4))[0]
+
+    def write(self, addr, value):
+        self.u.mem_write(addr, struct.pack(">I", value))
+
+    def subcall(self, u, address, _size, _data):
+        # These services depend on match-wide state. The parser and all bitfield
+        # reads run natively; damage scaling is identity in this isolated fixture.
+        if address in (0x80076718, 0x800DEA6C, 0x80088F80, 0x800801B4):
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address == FUNCTIONS["PLAY_SFX"]:
+            self.sounds.append(tuple(u.reg_read(UC_PPC_REG_0 + i) for i in range(3, 7)))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+
+    def run_reader(self, name, words):
+        self.u.mem_write(self.SCRIPT, struct.pack(">" + "I" * len(words), *words))
+        self.write(self.EVENT + 8, self.SCRIPT)
+        self.u.reg_write(UC_PPC_REG_0 + 1, self.STACK)
+        self.u.reg_write(UC_PPC_REG_0 + 3, self.OBJ)
+        self.u.reg_write(UC_PPC_REG_0 + 4, self.EVENT)
+        self.u.reg_write(UC_PPC_REG_LR, self.STOP)
+        address = name if isinstance(name, int) else FUNCTIONS[name]
+        self.u.emu_start(address, self.STOP, count=10000)
+        self.assertEqual(self.u.reg_read(UC_PPC_REG_PC), self.STOP)
+        self.assertEqual(self.u.reg_read(UC_PPC_REG_0 + 1), self.STACK)
+
+    def test_actual_pummel_decoder_sets_damage_element_and_victim_filter(self):
+        for hand, damage, element in (("MH", 6, 0), ("CH", 7, 15)):
+            self.run_reader("CREATE_HITBOX", self.blobs[f"PUMMEL_DATA_{hand}"])
+            hb = self.FP + 0x914
+            self.assertEqual(self.read(hb + 8), damage)
+            self.assertEqual(self.read(hb + 0x30), element)
+            self.assertEqual(self.read(hb + 0x48), 0x80930000)
+            self.assertTrue(self.u.mem_read(hb + 0x134, 1)[0] & 0x80)
+
+    def test_actual_grab_decoder_uses_widened_catch_sphere(self):
+        for hand, index in (("MH", 5), ("CH", 1)):
+            words = self.blobs[f"GRAB_DATA_{hand}"][index:index + 5] + [0]
+            self.run_reader("CREATE_HITBOX", words)
+            hb = self.FP + 0x914
+            self.assertEqual(self.read(hb + 0x30), 8)
+            radius = struct.unpack(">f", self.u.mem_read(hb + 0x1C, 4))[0]
+            # The native multiplier is approximately 0.003906, not exact 1/256.
+            self.assertAlmostEqual(radius, 24, places=2)
+
+    def test_actual_throw_decoder_keeps_native_throw_knockback(self):
+        for hand, damage, angle in (("MH", 12, 30), ("CH", 16, 60)):
+            self.run_reader("SET_THROW_DATA", self.blobs[f"THROW_DATA_{hand}"])
+            hb = self.FP + 0xDF4
+            self.assertEqual(self.read(hb + 8), damage)
+            self.assertEqual(self.read(hb + 0x20), angle)
+            self.assertEqual(self.read(self.EVENT + 8), self.SCRIPT + 12)
+
+    def test_actual_grab_sound_command_dispatches_to_play_sfx(self):
+        self.run_reader(0x800719DC, self.blobs["GRAB_DATA_MH"][1:4])
+        self.assertEqual(self.sounds, [(self.FP, 156, 127, 64)])
+        self.assertEqual(self.read(self.EVENT + 8), self.SCRIPT + 12)
+
+
+if __name__ == "__main__":
+    unittest.main()

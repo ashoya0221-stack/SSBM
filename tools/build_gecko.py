@@ -5,6 +5,7 @@ Only generated patch text is written. Input game files are never modified.
 """
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -15,9 +16,11 @@ import sys
 try:
     from .fighter_dat import FighterDat
     from .inspect_dol import inspect
+    from .inspect_animations import inspect_pair
 except ImportError:
     from fighter_dat import FighterDat
     from inspect_dol import inspect
+    from inspect_animations import inspect_pair
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,16 +39,21 @@ FUNCTIONS = {
     "MH_THROWN": 0x801553EC, "CH_THROWN": 0x8015AE9C,
     "APPLY_THROW": 0x800DDE5C, "LAUNCH_VICTIM": 0x800DE374,
     "RANDI": 0x8037E6CC,
+    "PLAY_SFX": 0x80087EA0, "BOSS_LAUGH": 0x8015BC44,
+    "ANIM_SEEK": 0x8006EA8C, "ANIM_EVALUATE": 0x8006E858,
 }
 
 
 def data_words(settings):
     """Native hitbox encoding; only scalar parameters, no archived assets."""
     start, end = settings["grab_start_frame"], settings["grab_end_frame"]
+    radius = round(settings["grab_radius"] * 256)
     output = {}
     for hand, suffix, mirrored in (("master", "MH", False), ("crazy", "CH", True)):
-        output[f"GRAB_DATA_{suffix}"] = [
-            0x08000000 | start, 0x2C009000, 0x096003E8,
+        output[f"GRAB_DATA_{suffix}"] = ([
+            0x0800000F, 0x44000000, 156, 0x00007F40,
+        ] if not mirrored else []) + [
+            0x08000000 | start, 0x2C009000, (radius << 16) | 0x03E8,
             0x07D007D0 if mirrored else 0x07D0F830,
             0x14190013, 0x00200007, 0x08000000 | end, 0x40000000, 0,
         ]
@@ -67,11 +75,13 @@ def data_words(settings):
 
 def expand(source, settings):
     constants = dict(FUNCTIONS)
-    for i, tick in enumerate(settings["pummel_ticks"], 1):
-        constants[f"PUMMEL_{i}"] = tick
-        constants[f"CLEAR_{i}"] = tick + settings["pummel_active_ticks"]
-    constants["THROW_TICK"] = settings["throw_tick"]
+    for i, frame in enumerate(settings["pummel_frames"], 1):
+        constants[f"PUMMEL_{i}"] = frame
+    constants["ACTIVE_FRAMES"] = settings["pummel_active_frames"]
+    constants["THROW_FRAME"] = settings["throw_frame"]
     blobs = data_words(settings)
+    calls = Counter(re.findall(r"^\s*(?:CALL|TAIL) (\w+)\s*$", source, re.M))
+    thunks = {name for name, count in calls.items() if count > 1}
     lines = []
     counter = 0
     for raw in source.splitlines():
@@ -84,10 +94,15 @@ def expand(source, settings):
             lines += ["lmw 26,0x48(1)", "lwz 0,0x64(1)", "mtlr 0", "addi 1,1,0x60"]
             if line == "LEAVE":
                 lines.append("blr")
-        elif line.startswith("CALL "):
-            value = constants[line.split()[1]]
-            lines += [f"lis 12,{value >> 16}", f"ori 12,12,{value & 0xFFFF}",
-                      "mtctr 12", "bctrl"]
+        elif line.startswith(("CALL ", "TAIL ")):
+            name = line.split()[1]
+            if name in thunks:
+                branch = "bl" if line.startswith("CALL ") else "b"
+                lines.append(f"{branch} native_{name}")
+            else:
+                value = constants[name]
+                lines += [f"lis 12,{value >> 16}", f"ori 12,12,{value & 0xFFFF}",
+                          "mtctr 12", "bctrl" if line.startswith("CALL ") else "bctr"]
         elif line.startswith("PTR "):
             reg, target = line[4:].split(",")
             label = f"get_pc_{counter}"
@@ -100,6 +115,14 @@ def expand(source, settings):
             for key, value in constants.items():
                 line = re.sub(r"\b" + key + r"\b", str(value), line)
             lines.append(line)
+    # Share repeated native call veneers. The final label is the hook's branch
+    # around its helpers/data, so keep veneers before that label's terminal nop.
+    veneers = []
+    for name in sorted(thunks):
+        value = constants[name]
+        veneers += [f"native_{name}:", f"lis 12,{value >> 16}",
+                    f"ori 12,12,{value & 0xFFFF}", "mtctr 12", "bctr"]
+    lines[-2:-2] = veneers
     labels, pc = {}, 0
     for line in lines:
         if line.endswith(":"):
@@ -133,17 +156,20 @@ def c2(address, code):
 
 
 def build(settings, force_combo=False):
-    ticks = settings["pummel_ticks"]
-    if (len(ticks) != 5 or ticks != sorted(set(ticks)) or ticks[0] < 1
-            or ticks[-1] + settings["pummel_active_ticks"] >= settings["throw_tick"]
-            or settings["throw_tick"] >= 300 or settings["pummel_active_ticks"] < 1
-            or any(b - a <= settings["pummel_active_ticks"] for a, b in zip(ticks, ticks[1:]))):
+    frames = settings["pummel_frames"]
+    if (len(frames) != 5 or frames != sorted(set(frames)) or frames[0] < 1
+            or frames[-1] + settings["pummel_active_frames"] >= settings["throw_frame"]
+            or settings["throw_frame"] >= 331 or settings["pummel_active_frames"] < 1
+            or any(b - a <= settings["pummel_active_frames"] for a, b in zip(frames, frames[1:]))):
         raise ValueError("invalid pummel/throw schedule")
     if not 0 < settings["grab_start_frame"] < settings["grab_end_frame"] < 180:
         raise ValueError("invalid grab window")
+    if not 0 < settings["grab_radius"] < 128:
+        raise ValueError("invalid grab radius")
     for hand in ("master", "crazy"):
         if not (1 <= settings[hand]["pummel_damage"] <= 1023
                 and 0 <= settings[hand]["pummel_element"] <= 16
+                and settings[hand]["pummel_element"] != 8
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
     runtime, symbols, expanded = assemble((ROOT / "patches/tagtsukamu.s").read_text(), settings)
@@ -194,6 +220,10 @@ def build(settings, force_combo=False):
     lines += c2(0x80155FDC, requester)
     lines += c2(0x8014FB2C, runtime)
     lines.append("E0000000 80008000")
+    # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
+    # and the 8-byte code-list header. Do not silently emit an oversized code.
+    if len(lines) * 8 > 3256:
+        raise ValueError("patch exceeds Dolphin's default Gecko code-list capacity")
     return "\n".join(lines) + "\n", runtime, symbols, expanded
 
 
@@ -217,11 +247,22 @@ def main():
     parser.add_argument("dol", type=Path)
     parser.add_argument("master_dat", type=Path)
     parser.add_argument("crazy_dat", type=Path)
+    parser.add_argument("--master-aj", type=Path)
+    parser.add_argument("--crazy-aj", type=Path)
     parser.add_argument("--out-dir", type=Path, default=ROOT / "dist")
     args = parser.parse_args()
     try:
         validate_inputs(args.dol.read_bytes(), args.master_dat.read_bytes(), args.crazy_dat.read_bytes())
         settings = json.loads((ROOT / "config/restoration.json").read_text())
+        if bool(args.master_aj) != bool(args.crazy_aj):
+            raise ValueError("supply both --master-aj and --crazy-aj")
+        if args.master_aj:
+            report = inspect_pair(args.master_dat.read_bytes(), args.master_aj.read_bytes(),
+                                  args.crazy_dat.read_bytes(), args.crazy_aj.read_bytes())
+            if any(r["finger_flexion_peaks"] != settings["pummel_frames"]
+                   for r in report.values()):
+                raise ValueError("configured pulses differ from supplied AJ flexion peaks")
+            print("Both AJ archives verified: 78 / 331 / 100 frames; five matching flexion peaks")
         outputs = {}
         for force, name in ((False, "Tagtsukamu-US-1.00"), (True, "Tagtsukamu-US-1.00-combo-test")):
             text, _, _, _ = build(settings, force)
@@ -230,7 +271,7 @@ def main():
         for name, text in outputs.items():
             (args.out_dir / name).write_text(text, encoding="ascii")
             print(args.out_dir / name)
-    except (OSError, ValueError, KeyError, ImportError) as exc:
+    except (OSError, ValueError, KeyError, ImportError, struct.error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0

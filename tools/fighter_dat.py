@@ -42,4 +42,5 @@ class FighterDat:
         end = self.data.find(b"\0", name)
         if end < 0:
             raise ValueError("unterminated motion name")
-        return {"name": self.data[name:end].decode("ascii"), "script": row[3]}
+        return {"name": self.data[name:end].decode("ascii"), "script": row[3],
+                "animation_offset": row[1], "animation_size": row[2]}
