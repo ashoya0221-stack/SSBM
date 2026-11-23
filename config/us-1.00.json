@@ -69,6 +69,11 @@
       "name": "crazy_team_wait_initializer_hook",
       "address": "0x8015a114",
       "expected": "7c0802a638800180"
+    },
+    {
+      "name": "player_get_entity_p3_p4_lookup",
+      "address": "0x80034090",
+      "expected": "7c0802a6900100049421ffe893e100147c7f1b794180000c2c1f00064180002c"
     }
   ],
   "addresses": {
@@ -91,6 +96,7 @@
     "master_manual_input": "0x8014ff44",
     "crazy_manual_input": "0x80156158",
     "master_manual_tag_hook": "0x80150320",
-    "crazy_team_wait_initializer": "0x8015a114"
+    "crazy_team_wait_initializer": "0x8015a114",
+    "player_get_entity": "0x80034090"
   }
 }
