@@ -53,6 +53,7 @@ class NativeStartupTests(unittest.TestCase):
             self.player_slot_queries.append(slot)
             u.reg_write(UC_PPC_REG_0 + 3, self.player_entities.get(slot, 0))
             u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+            return
         elif address in (FUNCTIONS["MASTER_MOVE"], FUNCTIONS["CRAZY_MOVE"]):
             obj, callback, ptr = (u.reg_read(UC_PPC_REG_0 + i) for i in (3, 4, 5))
             self.moves.append((obj, callback, struct.unpack(">3f", u.mem_read(ptr, 12))))
