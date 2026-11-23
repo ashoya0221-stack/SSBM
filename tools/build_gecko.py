@@ -33,7 +33,8 @@ DAT_HASHES = {
 FUNCTIONS = {
     "MASTER_MOVE": 0x80150474, "CRAZY_MOVE": 0x8015B080,
     "MASTER_IDLE": 0x801506C8, "CRAZY_IDLE": 0x8015B2D4,
-    "GET_HAND": 0x8015BA34, "CHANGE_STATE": 0x80069288,
+    "GET_HAND": 0x8015BA34, "PLAYER_GET_ENTITY": 0x8003239C,
+    "CHANGE_STATE": 0x80069288,
     "ANIM_INIT": 0x8006EA48, "ANIM_REMAINING": 0x8006F0DC,
     "INIT_GRAB": 0x8007E034, "SET_GRAB_MASK": 0x8007E058,
     "CLEAR_HITBOXES": 0x8007AD14, "CREATE_HITBOX": 0x800710A8,
@@ -198,10 +199,14 @@ def build(settings, force_combo=False, manual=False):
         _, body = source.split("start_pair:\n", 1)
         entry = (ROOT / "patches/manual_entry.s").read_text()
         source = entry + "start_pair:\n" + body
+        # Manual/Versus fighters are ordinary P3/P4 player entities. Do not
+        # resolve them through the boss-only hand lookup used by CPU mode.
+        source = source.replace("CALL GET_HAND", "bl get_hand_manual")
         source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
                                 "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
         source = source.replace("# Data use no absolute relocations.",
                                 (ROOT / "patches/manual_grab.s").read_text()
+                                + "\n" + (ROOT / "patches/manual_slot_lookup.s").read_text()
                                 + "\n# Data use no absolute relocations.")
     runtime, symbols, expanded = assemble(source, settings)
     selection = """
