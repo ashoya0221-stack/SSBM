@@ -110,6 +110,7 @@ class NativeStartupTests(unittest.TestCase):
                                       (self.OBJ, self.CORE + self.symbols["start_pair"],
                                        (44, 30, 0))])
         self.master_arrives()
+        self.assertIn(3, self.player_slot_queries)  # P4 Crazy Hand
         self.assertEqual((self.read(self.FP + 0x10), self.read(self.CHF + 0x10)), (385, 380))
         self.assertEqual([(fp, mask, grabbed) for fp, mask, _, grabbed in self.registrations],
                          [(self.CHF, 256, 0x8015AB94), (self.FP, 128, 0x801550D8)])
