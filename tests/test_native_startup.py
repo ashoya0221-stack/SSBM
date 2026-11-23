@@ -1,7 +1,7 @@
-"""Human input -> actual native moves/arrival callbacks -> grab initialization.
+"""Normal-Versus P3/P4 input -> native movement and grab initialization.
 
-Animation loading and state application are isolated; input dispatch, hand
-lookup, movement registration, arrival calls, payload and INIT_GRAB run as PPC.
+Animation loading and state application are isolated. Manual hand lookup is
+resolved through ordinary player slots, not a debug/boss fighter-list fixture.
 """
 
 import struct
@@ -24,11 +24,10 @@ class NativeStartupTests(unittest.TestCase):
     def setUp(self):
         native.NativeReaderTests.setUp(self)
         self.states, self.registrations, self.allocations, self.aborts = [], [], [], []
-        self.write(self.OBJ + 8, self.CH)
-        self.write(self.CH + 0x2C, self.CHF)
-        self.write(self.CHF, self.CH)
-        self.write(0x804D56A4, 0x809A0000)
-        self.write(0x809A0020, self.OBJ)
+        # Ordinary Versus slots are zero-based: P3 (Master Hand) = 2,
+        # P4 (Crazy Hand) = 3. No debug/boss fighter-list is constructed.
+        self.player_entities = {2: self.OBJ, 3: self.CH}
+        self.player_slot_queries = []
         for obj, fp, kind, player, dat, attrs, motions in (
                 (self.OBJ, self.FP, 27, 2, 0x80960000, 0x80961000, 0x80962000),
                 (self.CH, self.CHF, 28, 3, 0x80980000, 0x80981000, 0x80982000)):
@@ -49,7 +48,12 @@ class NativeStartupTests(unittest.TestCase):
         from unicorn.ppc_const import (UC_PPC_REG_0, UC_PPC_REG_PC, UC_PPC_REG_LR)
         if not hasattr(self, "states"):
             return native.NativeReaderTests.subcall(self, u, address, size, data)
-        if address in (FUNCTIONS["MASTER_MOVE"], FUNCTIONS["CRAZY_MOVE"]):
+        if address == FUNCTIONS["PLAYER_GET_ENTITY"]:
+            slot = u.reg_read(UC_PPC_REG_0 + 3)
+            self.player_slot_queries.append(slot)
+            u.reg_write(UC_PPC_REG_0 + 3, self.player_entities.get(slot, 0))
+            u.reg_write(UC_PPC_REG_PC, u.reg_read(UC_PPC_REG_LR))
+        elif address in (FUNCTIONS["MASTER_MOVE"], FUNCTIONS["CRAZY_MOVE"]):
             obj, callback, ptr = (u.reg_read(UC_PPC_REG_0 + i) for i in (3, 4, 5))
             self.moves.append((obj, callback, struct.unpack(">3f", u.mem_read(ptr, 12))))
             return  # actual native movement registration executes
@@ -99,6 +103,7 @@ class NativeStartupTests(unittest.TestCase):
         self.crazy_arrives()
         self.assertEqual(self.read(self.CHF + 0x10), 384)
         self.assertEqual(self.read(self.FP + 0x10), 389)
+        self.assertIn(2, self.player_slot_queries)  # P3 Master Hand
         self.assertEqual(self.read(0x804BFE2C + 0x88), 0)  # no 3P input at all
         self.assertEqual(self.moves, [(self.CH, 0x8015A114, (-44, 30, 0)),
                                       (self.OBJ, self.CORE + self.symbols["start_pair"],
@@ -145,8 +150,8 @@ class NativeStartupTests(unittest.TestCase):
         self.assertEqual(len(self.allocations), 1)
         self.assertEqual(len(self.registrations), 2)
 
-    def test_missing_master_returns_crazy_to_idle(self):
-        self.write(0x809A0020, self.CH)
+    def test_missing_master_slot_returns_crazy_to_idle(self):
+        self.player_entities.pop(2)
         self.request()
         self.crazy_arrives()
         self.assertEqual(self.aborts, [self.CH])
