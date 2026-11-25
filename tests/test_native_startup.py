@@ -152,11 +152,25 @@ class NativeStartupTests(unittest.TestCase):
         self.assertEqual(len(self.allocations), 1)
         self.assertEqual(len(self.registrations), 2)
 
-    def test_missing_master_slot_returns_crazy_to_idle(self):
+    def test_swapped_versus_slots_still_resolve_both_hands(self):
+        # In some AR/player setups the hand roles may be reversed between P3/P4.
+        # The lookup must match fighter kind, not blindly trust the slot number.
+        self.player_entities = {2: self.CH, 3: self.OBJ}
+        self.request()
+        self.crazy_arrives()
+        self.assertEqual(self.moves[0][0], self.CH)
+        self.assertEqual(self.moves[1][0], self.OBJ)
+        self.master_arrives()
+        self.assertEqual((self.read(self.FP + 0x10), self.read(self.CHF + 0x10)),
+                         (385, 380))
+        self.assertEqual(len(self.registrations), 2)
+
+    def test_missing_master_slot_does_not_start_the_wrong_hand(self):
+        # P3 is empty and P4 is Crazy Hand; it must not be mistaken for Master.
         self.player_entities.pop(2)
         self.request()
         self.crazy_arrives()
-        self.assertEqual(self.aborts, [self.CH])
+        self.assertEqual(len(self.moves), 1)  # only Crazy Hand's original move
         self.assertEqual(self.registrations, [])
 
     def test_dead_or_sleeping_master_does_not_start_the_pair(self):
