@@ -791,8 +791,8 @@ stw 10,0x30(1)
 cmpwi 10,0
 beq attach_captured_done
 lwz 11,0x2c(10)
-mr 3,8
-mr 4,11
+mr 3,11
+mr 4,8
 CALL ATTACH_VICTIM
 lwz 10,0x30(1)
 lwz 11,0x2c(10)
