@@ -49,6 +49,7 @@ class Runtime:
         self.hit_generation = 0
         self.grounded = set()
         self.impacts, self.launches, self.allocations = [], [], []
+        self.attachments = []
         self.joints = {}
         self.installed_hooks = set()
         self.flowers, self.hit_effects = [], []
@@ -103,6 +104,8 @@ class Runtime:
         elif name == "PLAYER_GET_ENTITY":
             self.player_slot_lookups.append(a)
             result = self.player_slots.get(a, 0)
+        elif name == "ATTACH_VICTIM":
+            self.attachments.append((a, b))
         elif name == "RANDI":
             result = self.rng % a
         elif name == "CHANGE_STATE":
@@ -381,6 +384,19 @@ class RuntimeTests(unittest.TestCase):
         r.invoke("start_pair", r.MH)
         self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
         self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
+
+    def test_manual_capture_attaches_each_fighter_and_installs_position_callback(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertTrue(r.capture(r.MH, r.A))
+        self.assertTrue(r.capture(r.MH, r.B))
+        self.assertEqual(r.attachments, [
+            (r.fp(r.MH), r.fp(r.A)),
+            (r.fp(r.MH), r.fp(r.B)),
+        ])
+        for victim in (r.A, r.B):
+            self.assertEqual(r.read(r.fp(victim) + 0x21B0),
+                             FUNCTIONS["CAPTURE_FOLLOW"])
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)
