@@ -112,7 +112,7 @@ LEAVE
 # Keep native acceptance open until this hand has captured two distinct victims.
 on_grab:
 ENTER
-bl get_slots
+bl attach_captured
 lwz 10,0x1a58(8)
 lwz 0,0(9)
 cmpw 0,10
@@ -773,4 +773,34 @@ THROW_DATA_MH
 throw_ch:
 THROW_DATA_CH
 runtime_end:
+nop
+b runtime_exit
+
+# Attach the captured fighter's model root to the hand's TransN2 bone.
+# Its native accessory callback updates Fighter.cur_pos from the attached root,
+# so the name tag follows the actual fighter rather than remaining at spawn.
+attach_captured:
+ENTER
+bl get_slots
+lwz 10,0x1a58(8)
+stw 8,0x08(1)
+stw 9,0x0c(1)
+stw 10,0x10(1)
+cmpwi 10,0
+beq attach_captured_done
+lwz 11,0x2c(10)
+mr 3,8
+mr 4,11
+CALL ATTACH_VICTIM
+lwz 10,0x10(1)
+lwz 11,0x2c(10)
+lis 12,0x800d
+ori 12,12,0xb018
+stw 12,0x21b0(11)
+attach_captured_done:
+lwz 8,0x08(1)
+lwz 9,0x0c(1)
+lwz 10,0x10(1)
+LEAVE
+runtime_exit:
 nop
