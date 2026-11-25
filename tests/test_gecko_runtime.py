@@ -366,7 +366,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(3, r.player_slot_lookups)  # Crazy Hand in P4
         self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
         self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
-        r.invoke("tag_anim", r.MH)
+        r.invoke("tag_anim", r.CH)
         self.assertIn(2, r.player_slot_lookups)  # Master Hand in P3
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
