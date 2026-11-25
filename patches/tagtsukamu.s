@@ -779,6 +779,8 @@ b runtime_exit
 # Attach the captured fighter's model root to the hand's TransN2 bone.
 # Its native accessory callback updates Fighter.cur_pos from the attached root,
 # so the name tag follows the actual fighter rather than remaining at spawn.
+# Preserve the callback's GObj argument in r3: on_grab calls get_slots again
+# immediately after this helper returns. ATTACH_VICTIM may clobber all volatile GPRs.
 attach_captured:
 stwu 1,-0x40(1)
 mflr 0
@@ -787,21 +789,21 @@ bl get_slots
 lwz 10,0x1a58(8)
 stw 8,0x28(1)
 stw 9,0x2c(1)
-stw 10,0x30(1)
+stw 3,0x30(1)
 cmpwi 10,0
 beq attach_captured_done
 lwz 11,0x2c(10)
 mr 3,8
 mr 4,11
 CALL ATTACH_VICTIM
-lwz 10,0x30(1)
+lwz 8,0x28(1)
+lwz 10,0x1a58(8)
 lwz 11,0x2c(10)
 PTR 12,sync_captured_fighter
 stw 12,0x21b0(11)
 attach_captured_done:
-lwz 8,0x28(1)
 lwz 9,0x2c(1)
-lwz 10,0x30(1)
+lwz 3,0x30(1)
 lwz 0,0x44(1)
 mtlr 0
 addi 1,1,0x40
