@@ -324,9 +324,9 @@ class EncodingTests(unittest.TestCase):
         _, code, symbols, _ = build(SETTINGS, manual=True)
         branch_pc = symbols["attach_captured"] + 0x24
         word = struct.unpack(">I", code[branch_pc:branch_pc + 4])[0]
-        displacement = word & 0x03FFFFFC
-        if displacement & 0x02000000:
-            displacement -= 0x04000000
+        displacement = word & 0x0000FFFC
+        if displacement & 0x00008000:
+            displacement -= 0x00010000
         self.assertEqual(branch_pc + displacement,
                          symbols["attach_captured_done"])
 
