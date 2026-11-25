@@ -134,14 +134,16 @@ def expand(source, settings):
             for key, value in constants.items():
                 line = re.sub(r"\b" + key + r"\b", str(value), line)
             lines.append(line)
-    # Share repeated native call veneers. The final label is the hook's branch
-    # around its helpers/data, so keep veneers before that label's terminal nop.
+    # Share repeated native call veneers before runtime_end. Manual builds
+    # keep a small capture-follow helper after that marker, so appending veneers
+    # at the final label would move the data and change the helper's branch layout.
     veneers = []
     for name in sorted(thunks):
         value = constants[name]
         veneers += [f"native_{name}:", f"lis 12,{value >> 16}",
                     f"ori 12,12,{value & 0xFFFF}", "mtctr 12", "bctr"]
-    lines[-2:-2] = veneers
+    tail = lines.index("runtime_end:")
+    lines[tail:tail] = veneers
     labels, pc = {}, 0
     for line in lines:
         if line.endswith(":"):
