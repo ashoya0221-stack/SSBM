@@ -32,7 +32,7 @@
 ## 通常Versusでの手動テスト版
 
 CPU版v4で使っている技本体と投げ212フレームを基準に、v5当時の二段階Human入力経路を組み合わせたテスト版です。
-手の検索をfighter kind検索からP3/P4のPlayer_GetEntityへ差し替えています。
+手の検索をfighter kind検索からP3/P4のPlayer_GetEntityへ差し替え、人間操作が設定する `Slam` 要求値383をCPU版の `Squeezing1` 要求値380と混同しないようにしています。
 3P=Master Hand、4P=Crazy Handの通常Versus設定を前提とします。
 
 操作は4PのY＋十字キー左でCHを移動させ、到着後に3PのY＋十字キー上でMHから開始します。
