@@ -22,10 +22,23 @@
 
 - [通常版](dist/Tagtsukamu-US-1.00.txt)
 - [連携選択を固定する確認版](dist/Tagtsukamu-US-1.00-combo-test.txt)
+- [通常Versus手動テスト版](dist/Tagtsukamu-US-1.00-manual.txt)
 
 基準の[参考動画](https://www.youtube.com/watch?v=do8EdYx5OaE)は、ユーザーから提供された
 動画ファイルで確認しました。動画作者の非公開の判定サイズや正確な発生フレームを
 映像だけから特定することはできないため、完全一致を確認したコードではありません。
+
+
+## 通常Versusでの手動テスト版
+
+CPU版v4で使っている技本体と投げ212フレームを基準に、v5当時の二段階Human入力経路を組み合わせたテスト版です。
+手の検索をfighter kind検索からP3/P4のPlayer_GetEntityへ差し替えています。
+3P=Master Hand、4P=Crazy Handの通常Versus設定を前提とします。
+
+操作は4PのY＋十字キー左でCHを移動させ、到着後に3PのY＋十字キー上でMHから開始します。
+4P一回だけで自動開始するv6以降の方式は使いません。
+この手動テスト版はDolphinでの発動・投げをまだ確認していません。
+[操作方法](docs/manual-controls.md)と[検証範囲](docs/manual-v4core-versus-validation.md)を参照してください。
 
 ## ソースからの生成
 
