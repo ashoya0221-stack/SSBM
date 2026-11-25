@@ -99,6 +99,11 @@
       "name": "native_capture_position_callback",
       "address": "0x800db018",
       "expected": "7c0802a638800002900100049421ffd8"
+    },
+    {
+      "name": "native_capture_cut_removes_root_constraint",
+      "address": "0x800dc614",
+      "expected": "4bf2fd7d881e22263860000050602eb4"
     }
   ],
   "addresses": {
@@ -126,6 +131,7 @@
     "human_ch_arrival_callback": "0x8015A114",
     "player_get_entity": "0x80034090",
     "native_capture_root_constraint": "0x800daf1c",
-    "native_capture_position_callback": "0x800db018"
+    "native_capture_position_callback": "0x800db018",
+    "native_capture_cut_constraint_cleanup": "0x800dc614"
   }
 }
