@@ -210,12 +210,12 @@ def build(settings, force_combo=False, manual=False):
     if manual:
         # The v4 runtime has three GET_HAND calls. In the normal Versus setup,
         # Master Hand is P3 (slot 2) and Crazy Hand is P4 (slot 3).
-        if source.count("li 3,28\\nCALL GET_HAND") != 2 or source.count("li 3,27\\nCALL GET_HAND") != 1:
+        if source.count("li 3,28\nCALL GET_HAND") != 2 or source.count("li 3,27\nCALL GET_HAND") != 1:
             raise ValueError("unexpected v4 hand lookup call sites")
-        source = source.replace("li 3,28\\nCALL GET_HAND",
-                                "li 3,3\\nCALL PLAYER_GET_ENTITY")
-        source = source.replace("li 3,27\\nCALL GET_HAND",
-                                "li 3,2\\nCALL PLAYER_GET_ENTITY")
+        source = source.replace("li 3,28\nCALL GET_HAND",
+                                "li 3,3\nCALL PLAYER_GET_ENTITY")
+        source = source.replace("li 3,27\nCALL GET_HAND",
+                                "li 3,2\nCALL PLAYER_GET_ENTITY")
     runtime, symbols, expanded = assemble(source, settings)
     selection = """
         stw 27,0x224c(29)
