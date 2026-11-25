@@ -220,7 +220,7 @@ def build(settings, force_combo=False, manual=False):
         # 0x2250 (0x801565B4/0x801565CC). MH's 1.00 input path routes 380
         # through its fourth, previously missing branch at 0x8015030C.
         # Keep the v4 request check at 380; do not import the 1.02 enum value.
-        human_slam_gate = "lwz 0,0x2250(28)\\ncmpwi 0,380\\nbne start_cancel"
+        human_slam_gate = "lwz 0,0x2250(28)\ncmpwi 0,380\nbne start_cancel"
         if source.count(human_slam_gate) != 1:
             raise ValueError("US 1.00 manual CH request gate must remain 380")
     runtime, symbols, expanded = assemble(source, settings)
