@@ -33,7 +33,7 @@ DAT_HASHES = {
 FUNCTIONS = {
     "MASTER_MOVE": 0x80150474, "CRAZY_MOVE": 0x8015B080,
     "MASTER_IDLE": 0x801506C8, "CRAZY_IDLE": 0x8015B2D4,
-    "GET_HAND": 0x8015BA34, "CHANGE_STATE": 0x80069288,
+    "GET_HAND": 0x8015BA34, "PLAYER_GET_ENTITY": 0x80034090, "CHANGE_STATE": 0x80069288,
     "ANIM_INIT": 0x8006EA48, "ANIM_REMAINING": 0x8006F0DC,
     "INIT_GRAB": 0x8007E034, "SET_GRAB_MASK": 0x8007E058,
     "CLEAR_HITBOXES": 0x8007AD14, "CREATE_HITBOX": 0x800710A8,
@@ -49,6 +49,7 @@ FUNCTIONS = {
     "INVALIDATE_CODE": 0x80342FA4,
     "TAKE_DAMAGE": 0x8006CB20, "RECORD_HIT": 0x80078648,
     "APPLY_FLOWER": 0x8007F9C4, "HIT_EFFECT": 0x80078264,
+    "RESET_HIT_VICTIMS": 0x80008440,
 }
 
 
@@ -91,6 +92,8 @@ def expand(source, settings):
     for i, frame in enumerate(settings["pummel_frames"], 1):
         constants[f"PUMMEL_{i}"] = frame
     constants["ACTIVE_FRAMES"] = settings["pummel_active_frames"]
+    constants["GRAB_START"] = settings["grab_start_frame"]
+    constants["GRAB_END"] = settings["grab_end_frame"]
     constants["THROW_FRAME"] = settings["throw_frame"]
     constants["HITLAG_DAMAGE"] = max(settings[h]["pummel_damage"] for h in ("master", "crazy"))
     constants["SLAM_DROP_BITS"] = struct.unpack(">I", struct.pack(">f", settings["release_drop"]))[0]
@@ -170,7 +173,7 @@ def c2(address, code):
     return result
 
 
-def build(settings, force_combo=False):
+def build(settings, force_combo=False, manual=False):
     frames = settings["pummel_frames"]
     if (len(frames) != 5 or frames != sorted(set(frames)) or frames[0] < 1
             or frames[-1] + settings["pummel_active_frames"] >= settings["throw_frame"]
@@ -189,7 +192,31 @@ def build(settings, force_combo=False):
                 and settings[hand]["pummel_element"] != 8
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
-    runtime, symbols, expanded = assemble((ROOT / "patches/tagtsukamu.s").read_text(), settings)
+    source = (ROOT / "patches/tagtsukamu.s").read_text()
+    hook = 0x80150320 if manual else 0x8014FB2C
+    if manual:
+        # Human MH's missing fourth-combo branch has its own GObj register and
+        # position on the original stack (confirmed in the supplied US 1.00 DOL).
+        entry, body = source.split("start_pair:\n", 1)
+        entry = entry.replace("stfs 0,0x34(1)", "stfs 0,0x18(1)")
+        entry = entry.replace("mr 3,28", "mr 3,30")
+        entry = entry.replace("addi 5,1,0x8c", "addi 5,1,0x70")
+        source = entry + "start_pair:\n" + body
+        source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
+                                "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
+        source = source.replace("# Data use no absolute relocations.",
+                                (ROOT / "patches/manual_grab.s").read_text()
+                                + "\n# Data use no absolute relocations.")
+    if manual:
+        # The v4 runtime has three GET_HAND calls. In the normal Versus setup,
+        # Master Hand is P3 (slot 2) and Crazy Hand is P4 (slot 3).
+        if source.count("li 3,28\\nCALL GET_HAND") != 2 or source.count("li 3,27\\nCALL GET_HAND") != 1:
+            raise ValueError("unexpected v4 hand lookup call sites")
+        source = source.replace("li 3,28\\nCALL GET_HAND",
+                                "li 3,3\\nCALL PLAYER_GET_ENTITY")
+        source = source.replace("li 3,27\\nCALL GET_HAND",
+                                "li 3,2\\nCALL PLAYER_GET_ENTITY")
+    runtime, symbols, expanded = assemble(source, settings)
     selection = """
         stw 27,0x224c(29)
         cmpwi 27,5
@@ -233,18 +260,21 @@ def build(settings, force_combo=False):
     requester, _, _ = assemble(request, settings)
     # Guards target untouched prologues; hooks themselves change after installation.
     lines = ["2014F8E0 7C0802A6", "20155A84 7C0802A6"]
-    lines += c2(0x80155CCC, selector)
-    lines += c2(0x80155FDC, requester)
+    if not manual:
+        lines += c2(0x80155CCC, selector)
+        lines += c2(0x80155FDC, requester)
     # The core lives in game-allocated memory and expires with the native heap.
     # Compress our own code to leave the default Gecko area usable by test codes.
     # Return to the original caller after the entry trampoline has run.
-    back = bytes.fromhex("3d808014618cfb307d8903a64e800420")
+    resume = hook + 4
+    back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
+                       0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
     packed = pack_runtime(runtime + back)
     loader, loader_labels, _ = assemble(loader_source(packed, len(runtime) + len(back)), settings)
-    reset, sound_mask = helper_sources(loader_labels["loaded_core"])
+    reset, sound_mask = helper_sources(loader_labels["loaded_core"], hook)
     reset_code, _, _ = assemble(reset, settings)
     sound_code, _, _ = assemble(sound_mask, settings)
-    lines += c2(0x8014FB2C, loader)
+    lines += c2(hook, loader)
     lines += c2(0x80373574, reset_code)
     lines += c2(0x80026FAC, sound_code)
     lines.append("E0000000 80008000")
@@ -292,8 +322,10 @@ def main():
                 raise ValueError("configured pulses differ from supplied AJ flexion peaks")
             print("Both AJ archives verified: 78 / 331 / 100 frames; five matching flexion peaks")
         outputs = {}
-        for force, name in ((False, "Tagtsukamu-US-1.00"), (True, "Tagtsukamu-US-1.00-combo-test")):
-            text, _, _, _ = build(settings, force)
+        for force, manual, name in ((False, False, "Tagtsukamu-US-1.00"),
+                                    (True, False, "Tagtsukamu-US-1.00-combo-test"),
+                                    (False, True, "Tagtsukamu-US-1.00-manual")):
+            text, _, _, _ = build(settings, force, manual)
             outputs[name + ".txt"] = text
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for name, text in outputs.items():
