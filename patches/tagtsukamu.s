@@ -780,32 +780,32 @@ b runtime_exit
 # Its native accessory callback updates Fighter.cur_pos from the attached root,
 # so the name tag follows the actual fighter rather than remaining at spawn.
 attach_captured:
-stwu 1,-0x20(1)
+stwu 1,-0x40(1)
 mflr 0
-stw 0,0x24(1)
+stw 0,0x44(1)
 bl get_slots
 lwz 10,0x1a58(8)
-stw 8,0x08(1)
-stw 9,0x0c(1)
-stw 10,0x10(1)
+stw 8,0x28(1)
+stw 9,0x2c(1)
+stw 10,0x30(1)
 cmpwi 10,0
 beq attach_captured_done
 lwz 11,0x2c(10)
 mr 3,8
 mr 4,11
 CALL ATTACH_VICTIM
-lwz 10,0x10(1)
+lwz 10,0x30(1)
 lwz 11,0x2c(10)
 lis 12,0x800d
 ori 12,12,0xb018
 stw 12,0x21b0(11)
 attach_captured_done:
-lwz 8,0x08(1)
-lwz 9,0x0c(1)
-lwz 10,0x10(1)
-lwz 0,0x24(1)
+lwz 8,0x28(1)
+lwz 9,0x2c(1)
+lwz 10,0x30(1)
+lwz 0,0x44(1)
 mtlr 0
-addi 1,1,0x20
+addi 1,1,0x40
 blr
 runtime_exit:
 nop
