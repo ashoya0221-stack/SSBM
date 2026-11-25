@@ -796,8 +796,7 @@ mr 4,11
 CALL ATTACH_VICTIM
 lwz 10,0x30(1)
 lwz 11,0x2c(10)
-lis 12,0x800d
-ori 12,12,0xb018
+PTR 12,sync_captured_fighter
 stw 12,0x21b0(11)
 attach_captured_done:
 lwz 8,0x28(1)
@@ -807,5 +806,21 @@ lwz 0,0x44(1)
 mtlr 0
 addi 1,1,0x40
 blr
+# Accessory callback: first let the native capture routine refresh Fighter.cur_pos,
+# then mirror that position into Player's active transformed slot. The nametag
+# UI reads Player_LoadPlayerCoords, not Fighter.cur_pos directly. The normal
+# Fighter_procPlayer sync is skipped while is_sleeping is set during capture.
+sync_captured_fighter:
+ENTER
+mr 31,3
+CALL CAPTURE_FOLLOW
+lwz 30,0x2c(31)
+lwz 3,0x0c(30)
+lbz 4,0x221f(30)
+rlwinm 4,4,29,31,31
+addi 5,30,0xb0
+CALL PLAYER_SET_SLOT_POS
+LEAVE
+
 runtime_exit:
 nop
