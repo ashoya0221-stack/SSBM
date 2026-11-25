@@ -38,6 +38,7 @@ FUNCTIONS = {
     "INIT_GRAB": 0x8007E034, "SET_GRAB_MASK": 0x8007E058,
     "CLEAR_HITBOXES": 0x8007AD14, "CREATE_HITBOX": 0x800710A8,
     "SET_THROW_DATA": 0x80071C90, "CAPTURE_CUT": 0x800DC304,
+    "ATTACH_VICTIM": 0x800DAF1C, "CAPTURE_FOLLOW": 0x800DB018,
     "MH_THROWN": 0x801553EC, "CH_THROWN": 0x8015AE9C,
     "APPLY_THROW": 0x800DDE5C, "LAUNCH_VICTIM": 0x800DE374,
     "RANDI": 0x8037E6CC,
@@ -193,6 +194,18 @@ def build(settings, force_combo=False, manual=False):
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
     source = (ROOT / "patches/tagtsukamu.s").read_text()
+    if not manual:
+        # The captured-fighter model-follow add-on is needed for the manual
+        # Human-input build. Keep the established CPU v4 outputs byte-for-byte.
+        if source.count("bl attach_captured\\n") != 1:
+            raise ValueError("manual capture-follow call site is missing")
+        if source.count("runtime_end:\\nnop\\nb runtime_exit\\n") != 1:
+            raise ValueError("manual capture-follow runtime tail is missing")
+        source = source.replace("bl attach_captured\\n", "bl get_slots\\n", 1)
+        start = source.index("runtime_end:\\nnop\\nb runtime_exit\\n")
+        end_marker = "runtime_exit:\\nnop"
+        end = source.index(end_marker, start) + len(end_marker)
+        source = source[:start] + "runtime_end:\\nnop" + source[end:]
     hook = 0x80150320 if manual else 0x8014FB2C
     if manual:
         # Human MH's missing fourth-combo branch has its own GObj register and
