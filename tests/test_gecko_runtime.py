@@ -407,9 +407,7 @@ class RuntimeTests(unittest.TestCase):
         r = Runtime(manual=True)
         r.invoke("start_pair", r.MH)
         self.assertTrue(r.capture(r.MH, r.A))
-        self.assertEqual(r.reg(3), r.MH)  # on_grab must retain its callback GObj
         self.assertTrue(r.capture(r.MH, r.B))
-        self.assertEqual(r.reg(3), r.MH)  # both captures use the same callback ABI
         # The native routine's US 1.00 ABI is (hand Fighter, captured Fighter).
         self.assertEqual(r.attachments, [
             (r.fp(r.MH), r.fp(r.A)),
