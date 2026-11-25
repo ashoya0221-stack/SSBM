@@ -60,7 +60,7 @@ class Runtime:
             fp = 0x80500000 + i * 0x10000
             self.write(obj + 0x2C, fp)
             self.write(fp + 4, 27 + i if i < 2 else 0)
-            self.write(fp + 0x0C, i if i >= 2 else i - 2)
+            self.write(fp + 0x0C, (i + 2) % 4)
             self.write(fp + 0x10, 341)
             self.write(fp + 0x1844, 0x3F800000)
             self.write(fp + 0x38, 0x3F800000)
