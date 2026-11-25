@@ -137,12 +137,12 @@ nop
 """
 
 
-def helper_sources(state_offset):
+def helper_sources(state_offset, loader_hook=0x8014FB2C):
     # Resolve the C2 loader through the handler's installed relative branch.
     # This remains valid if other Gecko codes move the code list in memory.
     reset = f"""
-lis 8,0x8014
-ori 8,8,0xfb2c
+lis 8,{loader_hook >> 16}
+ori 8,8,{loader_hook & 0xFFFF}
 lwz 9,0(8)
 slwi 9,9,6
 srawi 9,9,6
