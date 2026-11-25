@@ -54,6 +54,41 @@
       "name": "character_audio_request_hook",
       "address": "0x80026fac",
       "expected": "7c0802a6"
+    },
+    {
+      "name": "human_mh_combo_request_lookup",
+      "address": "0x80150250",
+      "expected": "4800b8c12c03017b"
+    },
+    {
+      "name": "human_mh_fourth_combo_branch",
+      "address": "0x80150270",
+      "expected": "2c03017d408000b048000094"
+    },
+    {
+      "name": "human_mh_manual_hook_instruction",
+      "address": "0x80150320",
+      "expected": "d0010018"
+    },
+    {
+      "name": "human_ch_combo_request_380",
+      "address": "0x801565B4",
+      "expected": "3800017c"
+    },
+    {
+      "name": "human_ch_combo_request_store",
+      "address": "0x801565CC",
+      "expected": "90062250"
+    },
+    {
+      "name": "human_ch_arrival_changes_to_motion_384",
+      "address": "0x8015A114",
+      "expected": "7c0802a638800180"
+    },
+    {
+      "name": "player_get_entity_function",
+      "address": "0x80034090",
+      "expected": "7c0802a6900100049421ffe893e10014"
     }
   ],
   "addresses": {
@@ -72,6 +107,13 @@
     "get_hand_gobj": "0x8015ba34",
     "change_motion_state": "0x80069288",
     "animation_init": "0x8006ea48",
-    "animation_frames_remaining": "0x8006f0dc"
+    "animation_frames_remaining": "0x8006f0dc",
+    "human_mh_combo_request_lookup": "0x80150250",
+    "human_mh_fourth_combo_branch": "0x80150270",
+    "human_mh_manual_hook": "0x80150320",
+    "human_ch_request_value": "0x801565B4",
+    "human_ch_request_store": "0x801565CC",
+    "human_ch_arrival_callback": "0x8015A114",
+    "player_get_entity": "0x80034090"
   }
 }
