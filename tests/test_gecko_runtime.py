@@ -36,6 +36,7 @@ class Runtime:
         self.u.reg_write(UC_PPC_REG_MSR, 0x2000)  # enable floating-point instructions
         self.hands = {27: self.MH, 28: self.CH}
         self.player_slots = {2: self.MH, 3: self.CH}
+        self.player_slot_lookups = []
         self.frames_remaining = {}
         self.damage = {self.A: 0, self.B: 0}
         self.pummels, self.throws, self.cuts = [], [], []
@@ -100,6 +101,7 @@ class Runtime:
         if name == "GET_HAND":
             result = self.hands.get(a, 0)
         elif name == "PLAYER_GET_ENTITY":
+            self.player_slot_lookups.append(a)
             result = self.player_slots.get(a, 0)
         elif name == "RANDI":
             result = self.rng % a
@@ -357,6 +359,15 @@ class RuntimeTests(unittest.TestCase):
         r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
         r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(len(r.allocations), 2)
+
+    def test_manual_core_uses_master_p3_and_crazy_p4_slots(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertIn(3, r.player_slot_lookups)  # Crazy Hand in P4
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
+        r.invoke("tag_anim", r.MH)
+        self.assertIn(2, r.player_slot_lookups)  # Master Hand in P3
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)
