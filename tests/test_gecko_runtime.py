@@ -69,7 +69,7 @@ class Runtime:
                 self.write(parts + 0x120, joint)
                 self.joints[joint] = (25.0 if i == 0 else -25.0, 50.0, 0.0)
         self.write(self.fp(self.CH) + 0x10, 384)
-        self.write(self.fp(self.CH) + 0x2250, 380)
+        self.write(self.fp(self.CH) + 0x2250, 383 if manual else 380)
         self.u.hook_add(UC_HOOK_CODE, self.game_call)
 
     def read(self, address):
@@ -362,12 +362,25 @@ class RuntimeTests(unittest.TestCase):
 
     def test_manual_core_uses_master_p3_and_crazy_p4_slots(self):
         r = Runtime(manual=True)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x2250), 383)  # human Slam request
         r.invoke("start_pair", r.MH)
         self.assertIn(3, r.player_slot_lookups)  # Crazy Hand in P4
         self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
         self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
         r.invoke("tag_anim", r.CH)
         self.assertIn(2, r.player_slot_lookups)  # Master Hand in P3
+
+    def test_manual_core_does_not_confuse_cpu_squeezing1_with_human_slam(self):
+        r = Runtime(manual=True)
+        r.write(r.fp(r.CH) + 0x2250, 380)  # CPU selector's Squeezing1
+        r.invoke("start_pair", r.MH)
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 341)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 384)
+        self.assertFalse(any(e[1] == "CHANGE_STATE" for e in r.events))
+        r.write(r.fp(r.CH) + 0x2250, 383)  # Human Y + DPAD-LEFT's Slam
+        r.invoke("start_pair", r.MH)
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)
