@@ -17,7 +17,7 @@ v7では、Master HandをP3（slot 2）、Crazy HandをP4（slot 3）と固定�
 3. 要求種別（Master Hand=27 / Crazy Hand=28）と一致すればP3を返す。
 4. 一致しないかP3が空ならP4（slot 3）を取得する。
 
-この補正は手の取得先だけに適用する。技の本体は変更しない。
+この補正は手の取得先だけに適用する。技の本体は変更しない。P3とP4の両方に手が割り当てられている通常構成を前提とし、片方が空、または通常キャラクターの場合の選択は保証しない。
 
 - Master HandのTagtsukamu：action 385 / motion 339
 - Crazy HandのTagtsukamu：action 380 / motion 334
@@ -32,7 +32,6 @@ Gecko C2データを再圧縮し、ランタイム長0xFC0、Player_GetEntity呼
 
 起動テストには通常のP3=MH/P4=CH配置に加え、P3=CH/P4=MHの逆配置を追加した。
 逆配置でも要求種別に一致する手が選ばれ、MH=385 / CH=380の状態で両手の掴み初期化に到達することを検査する。
-P3が空でP4だけがCHの場合、CHをMHとして誤って開始しないことも検査する。
 
 ## 制限
 
