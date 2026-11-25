@@ -197,15 +197,15 @@ def build(settings, force_combo=False, manual=False):
     if not manual:
         # The captured-fighter model-follow add-on is needed for the manual
         # Human-input build. Keep the established CPU v4 outputs byte-for-byte.
-        if source.count("bl attach_captured\\n") != 1:
+        if source.count("bl attach_captured\n") != 1:
             raise ValueError("manual capture-follow call site is missing")
-        if source.count("runtime_end:\\nnop\\nb runtime_exit\\n") != 1:
+        if source.count("runtime_end:\nnop\nb runtime_exit\n") != 1:
             raise ValueError("manual capture-follow runtime tail is missing")
-        source = source.replace("bl attach_captured\\n", "bl get_slots\\n", 1)
-        start = source.index("runtime_end:\\nnop\\nb runtime_exit\\n")
-        end_marker = "runtime_exit:\\nnop"
+        source = source.replace("bl attach_captured\n", "bl get_slots\n", 1)
+        start = source.index("runtime_end:\nnop\nb runtime_exit\n")
+        end_marker = "runtime_exit:\nnop"
         end = source.index(end_marker, start) + len(end_marker)
-        source = source[:start] + "runtime_end:\\nnop" + source[end:]
+        source = source[:start] + "runtime_end:\nnop" + source[end:]
     hook = 0x80150320 if manual else 0x8014FB2C
     if manual:
         # Human MH's missing fourth-combo branch has its own GObj register and
