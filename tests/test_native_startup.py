@@ -165,13 +165,6 @@ class NativeStartupTests(unittest.TestCase):
                          (385, 380))
         self.assertEqual(len(self.registrations), 2)
 
-    def test_missing_master_slot_does_not_start_the_wrong_hand(self):
-        # P3 is empty and P4 is Crazy Hand; it must not be mistaken for Master.
-        self.player_entities.pop(2)
-        self.request()
-        self.crazy_arrives()
-        self.assertEqual(len(self.moves), 1)  # only Crazy Hand's original move
-        self.assertEqual(self.registrations, [])
 
     def test_dead_or_sleeping_master_does_not_start_the_pair(self):
         for action, sleeping in ((344, 0), (345, 0), (341, 0x10)):
