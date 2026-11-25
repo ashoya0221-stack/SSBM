@@ -390,10 +390,10 @@ class RuntimeTests(unittest.TestCase):
         r.invoke("start_pair", r.MH)
         self.assertTrue(r.capture(r.MH, r.A))
         self.assertTrue(r.capture(r.MH, r.B))
-        # The native routine's US 1.00 ABI is (captured Fighter, hand Fighter).
+        # The native routine's US 1.00 ABI is (hand Fighter, captured Fighter).
         self.assertEqual(r.attachments, [
-            (r.fp(r.A), r.fp(r.MH)),
-            (r.fp(r.B), r.fp(r.MH)),
+            (r.fp(r.MH), r.fp(r.A)),
+            (r.fp(r.MH), r.fp(r.B)),
         ])
         for victim in (r.A, r.B):
             self.assertEqual(r.read(r.fp(victim) + 0x21B0),
