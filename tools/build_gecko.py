@@ -219,11 +219,11 @@ def build(settings, force_combo=False, manual=False):
         # CPU selection stores Squeezing1 (380), but the human Y+DPAD-LEFT
         # path stores Slam (three enum entries later). The manual hook only
         # reaches the missing Slam branch, so validate its human request value.
-        human_slam_gate = "lwz 0,0x2250(28)\\ncmpwi 0,380\\nbne start_cancel"
+        human_slam_gate = "lwz 0,0x2250(28)\ncmpwi 0,380\nbne start_cancel"
         if source.count(human_slam_gate) != 1:
             raise ValueError("unexpected v4 start_pair request gate")
         source = source.replace(human_slam_gate,
-                                "lwz 0,0x2250(28)\\ncmpwi 0,383\\nbne start_cancel")
+                                "lwz 0,0x2250(28)\ncmpwi 0,383\nbne start_cancel")
     runtime, symbols, expanded = assemble(source, settings)
     selection = """
         stw 27,0x224c(29)
