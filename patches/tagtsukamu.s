@@ -777,8 +777,8 @@ nop
 b runtime_exit
 
 # Attach the captured fighter's model root to the hand's TransN2 bone.
-# Its native accessory callback updates Fighter.cur_pos from the attached root,
-# so the name tag follows the actual fighter rather than remaining at spawn.
+# The native accessory callback updates Fighter.cur_pos from the attached root;
+# sync_captured_fighter then mirrors that position into Player's nametag coordinates.
 attach_captured:
 stwu 1,-0x40(1)
 mflr 0
