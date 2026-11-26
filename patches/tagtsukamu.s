@@ -815,7 +815,7 @@ ENTER
 mr 31,3
 CALL CAPTURE_FOLLOW
 lwz 30,0x2c(31)
-lwz 3,0x0c(30)
+lbz 3,0x0c(30)
 lbz 4,0x221f(30)
 rlwinm 4,4,29,31,31
 addi 5,30,0xb0
