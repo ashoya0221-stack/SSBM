@@ -89,6 +89,36 @@
       "name": "player_get_entity_function",
       "address": "0x80034090",
       "expected": "7c0802a6900100049421ffe893e10014"
+    },
+    {
+      "name": "player_set_active_position_for_nametag",
+      "address": "0x800327A8",
+      "expected": "7c0802a6900100049421ffd893e10024"
+    },
+    {
+      "name": "fighter_player_position_sync",
+      "address": "0x8006D900",
+      "expected": "83e3002c889f221f5480e7ff40820040887f000c5484effe38bf00b04bfc4e8d"
+    },
+    {
+      "name": "nametag_reads_player_position",
+      "address": "0x802FB4C0",
+      "expected": "4bd3718d"
+    },
+    {
+      "name": "native_capture_root_constraint",
+      "address": "0x800daf1c",
+      "expected": "7c0802a6900100049421ffc893e10034"
+    },
+    {
+      "name": "native_capture_position_callback",
+      "address": "0x800db018",
+      "expected": "7c0802a638800002900100049421ffd8"
+    },
+    {
+      "name": "native_capture_cut_removes_root_constraint",
+      "address": "0x800dc614",
+      "expected": "4bf2fd7d881e22263860000050602eb4"
     }
   ],
   "addresses": {
@@ -114,6 +144,12 @@
     "human_ch_request_value": "0x801565B4",
     "human_ch_request_store": "0x801565CC",
     "human_ch_arrival_callback": "0x8015A114",
-    "player_get_entity": "0x80034090"
+    "player_get_entity": "0x80034090",
+    "player_set_active_position_for_nametag": "0x800327A8",
+    "fighter_player_position_sync": "0x8006D900",
+    "nametag_reads_player_position": "0x802FB4C0",
+    "native_capture_root_constraint": "0x800daf1c",
+    "native_capture_position_callback": "0x800db018",
+    "native_capture_cut_constraint_cleanup": "0x800dc614"
   }
 }
