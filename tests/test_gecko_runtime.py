@@ -312,6 +312,16 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
+    def test_manual_null_victim_branch_targets_attach_done_label(self):
+        _, code, symbols, _ = build(SETTINGS, manual=True)
+        branch_pc = symbols["attach_captured"] + 0x24
+        word = struct.unpack(">I", code[branch_pc:branch_pc + 4])[0]
+        displacement = word & 0x0000FFFC
+        if displacement & 0x00008000:
+            displacement -= 0x00010000
+        self.assertEqual(branch_pc + displacement,
+                         symbols["attach_captured_done"])
+
     def test_c2_branch_back_slot_and_line_count(self):
         for count in (1, 2, 3):
             lines = c2(0x80100000, b"\x60\x00\x00\x00" * count)
