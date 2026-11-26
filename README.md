@@ -22,7 +22,7 @@
 
 - [通常版](dist/Tagtsukamu-US-1.00.txt)
 - [連携選択を固定する確認版](dist/Tagtsukamu-US-1.00-combo-test.txt)
-- [通常Versus手動テスト版](dist/Tagtsukamu-US-1.00-manual.txt)
+- [通常Versus手動版](dist/Tagtsukamu-US-1.00-manual.txt)
 
 基準の[参考動画](https://www.youtube.com/watch?v=do8EdYx5OaE)は、ユーザーから提供された
 動画ファイルで確認しました。動画作者の非公開の判定サイズや正確な発生フレームを
