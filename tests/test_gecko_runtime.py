@@ -320,6 +320,15 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
+    def test_manual_nametag_sync_reads_byte_sized_player_slot(self):
+        _, runtime, symbols, _ = build(SETTINGS, manual=True)
+        # Match Fighter_procPlayer: lbz r3,0x0c(r31), not lwz.
+        slot_load = symbols["sync_captured_fighter"] + 0x28
+        self.assertEqual(struct.unpack(">I", runtime[slot_load:slot_load + 4])[0],
+                         0x887E000C)
+        self.assertEqual(struct.unpack(">I", runtime[slot_load + 4:slot_load + 8])[0],
+                         0x889E221F)
+
     def test_manual_null_victim_branch_skips_callback_install_thunk(self):
         _, code, symbols, _ = build(SETTINGS, manual=True)
         branch_pc = symbols["attach_captured"] + 0x24
