@@ -68,7 +68,7 @@ jobs:
               "gecko_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
               "symbols": {
                   "start_pair": hex(symbols["start_pair"]),
-                  "attach_captured": hex(symbols["attach_captured"]),
+                  "on_grab": hex(symbols["on_grab"]),
                   "sync_captured_fighter": hex(symbols["sync_captured_fighter"]),
               },
               "dolphin_gameplay_verified": False,
