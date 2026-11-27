@@ -129,7 +129,7 @@ cmpwi 10,0
 beq on_grab_slots_ready
 lwz 11,0x2c(10)
 PTR 12,sync_captured_fighter
-stw 12,0x21b0(11)
+stw 12,0x21ac(11)
 on_grab_slots_ready:
 lwz 10,0x1a58(8)
 lwz 0,0(9)
