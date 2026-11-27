@@ -45,8 +45,8 @@ jobs:
           code_list_bytes = len(lines) * 8
           if code_list_bytes > 3256:
               raise SystemExit(f"Gecko code list too large: {code_list_bytes} > 3256")
-          if "C215A114" not in gecko or "C2150320" in gecko:
-              raise SystemExit("manual build does not retain the v6 arrival hook")
+          if "C2150320" not in gecko or "C215A114" in gecko:
+              raise SystemExit("manual build does not retain the 3P MH Human hook")
           if "sync_captured_fighter" not in symbols or "on_grab" not in symbols:
               raise SystemExit("capture-follow symbols missing")
 
@@ -58,8 +58,9 @@ jobs:
           packed = pack_runtime(runtime + back)
           report = {
               "status": "assembled; PPC unit tests passed before this step",
-              "hook": "0x8015A114",
-              "legacy_failed_hook_present": "C2150320" in gecko,
+              "hook": "0x80150320",
+              "control_flow": "4P Y+Left -> CH wait -> 3P Y+Up -> MH move",
+              "v6_arrival_hook_present": "C215A114" in gecko,
               "runtime_bytes": len(runtime),
               "packed_runtime_bytes": len(packed),
               "gecko_lines": len(lines),
