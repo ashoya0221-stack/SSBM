@@ -1,0 +1,90 @@
+name: Manual capture-follow validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  manual-follow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install PPC assembler and emulator
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run repository tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build experimental manual Gecko code
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import struct
+          from pathlib import Path
+          from tools.build_gecko import ROOT, build
+          from tools.packed_runtime import pack_runtime
+
+          settings = json.loads((ROOT / "config/restoration.json").read_text())
+          gecko, runtime, symbols, _ = build(settings, manual=True)
+          lines = gecko.splitlines()
+          code_list_bytes = len(lines) * 8
+          if code_list_bytes > 3256:
+              raise SystemExit(f"Gecko code list too large: {code_list_bytes} > 3256")
+          if "C215A114" not in gecko or "C2150320" in gecko:
+              raise SystemExit("manual build does not retain the v6 arrival hook")
+          if "sync_captured_fighter" not in symbols or "attach_captured" not in symbols:
+              raise SystemExit("capture-follow helper symbols missing")
+
+          out = ROOT / "dist/Tagtsukamu-US-1.00-manual-follow-experimental.txt"
+          out.write_text(gecko, encoding="ascii")
+          resume = 0x8015A114 + 4
+          back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
+                             0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
+          packed = pack_runtime(runtime + back)
+          report = {
+              "status": "assembled; PPC unit tests passed before this step",
+              "hook": "0x8015A114",
+              "legacy_failed_hook_present": "C2150320" in gecko,
+              "runtime_bytes": len(runtime),
+              "packed_runtime_bytes": len(packed),
+              "gecko_lines": len(lines),
+              "gecko_code_list_bytes": code_list_bytes,
+              "gecko_code_list_limit_bytes": 3256,
+              "gecko_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
+              "symbols": {
+                  "start_pair": hex(symbols["start_pair"]),
+                  "attach_captured": hex(symbols["attach_captured"]),
+                  "sync_captured_fighter": hex(symbols["sync_captured_fighter"]),
+              },
+              "dolphin_gameplay_verified": False,
+              "actual_dol_hash_validated_in_this_job": False,
+          }
+          (ROOT / "dist/manual-follow-build-report.json").write_text(
+              json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload experimental code and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-follow-experimental-gecko
+          path: |
+            dist/Tagtsukamu-US-1.00-manual-follow-experimental.txt
+            dist/manual-follow-build-report.json
+          if-no-files-found: error
+          retention-days: 14
