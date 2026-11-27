@@ -437,7 +437,7 @@ class RuntimeTests(unittest.TestCase):
         )
         for victim, slot, sub_fighter, position in cases:
             fp = r.fp(victim)
-            r.write(fp + 0x0C, slot)
+            r.u.mem_write(fp + 0x0C, bytes([slot]))
             r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
             r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
             r.invoke("sync_captured_fighter", victim)
