@@ -112,7 +112,25 @@ LEAVE
 # Keep native acceptance open until this hand has captured two distinct victims.
 on_grab:
 ENTER
-bl attach_captured
+bl get_slots
+mr 26,8
+mr 27,9
+lwz 10,0x1a58(8)
+cmpwi 10,0
+beq on_grab_slots_ready
+lwz 11,0x2c(10)
+mr 3,8
+mr 4,11
+CALL ATTACH_VICTIM
+mr 8,26
+mr 9,27
+lwz 10,0x1a58(8)
+cmpwi 10,0
+beq on_grab_slots_ready
+lwz 11,0x2c(10)
+PTR 12,sync_captured_fighter
+stw 12,0x21b0(11)
+on_grab_slots_ready:
 lwz 10,0x1a58(8)
 lwz 0,0(9)
 cmpw 0,10
@@ -776,36 +794,6 @@ runtime_end:
 nop
 b runtime_exit
 
-# Attach the captured fighter's model root to the hand's TransN2 bone.
-# The native accessory callback updates Fighter.cur_pos from the attached root;
-# sync_captured_fighter then mirrors that position into Player's nametag coordinates.
-attach_captured:
-stwu 1,-0x40(1)
-mflr 0
-stw 0,0x44(1)
-bl get_slots
-lwz 10,0x1a58(8)
-stw 8,0x28(1)
-stw 9,0x2c(1)
-stw 10,0x30(1)
-cmpwi 10,0
-beq attach_captured_done
-lwz 11,0x2c(10)
-mr 3,8
-mr 4,11
-CALL ATTACH_VICTIM
-lwz 10,0x30(1)
-lwz 11,0x2c(10)
-PTR 12,sync_captured_fighter
-stw 12,0x21b0(11)
-attach_captured_done:
-lwz 8,0x28(1)
-lwz 9,0x2c(1)
-lwz 10,0x30(1)
-lwz 0,0x44(1)
-mtlr 0
-addi 1,1,0x40
-blr
 # Accessory callback: first let the native capture routine refresh Fighter.cur_pos,
 # then mirror that position into Player's active transformed slot. The nametag
 # UI reads Player_LoadPlayerCoords, not Fighter.cur_pos directly. The normal
