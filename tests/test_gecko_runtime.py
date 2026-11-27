@@ -442,6 +442,8 @@ class RuntimeTests(unittest.TestCase):
             r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
             r.invoke("sync_captured_fighter", victim)
             self.assertEqual(r.follow_calls[-1], victim)
+            self.assertIn((slot, sub_fighter), r.nametag_positions,
+                          f"nametag calls were {r.nametag_positions}")
             self.assertEqual(r.nametag_positions[(slot, sub_fighter)], position)
 
     def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
