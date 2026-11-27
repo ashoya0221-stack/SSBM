@@ -47,6 +47,9 @@ class Runtime:
         self.hit_generation = 0
         self.grounded = set()
         self.impacts, self.launches, self.allocations = [], [], []
+        self.attachments = []
+        self.follow_calls = []
+        self.nametag_positions = {}
         self.joints = {}
         self.installed_hooks = set()
         self.flowers, self.hit_effects = [], []
@@ -55,6 +58,7 @@ class Runtime:
             fp = 0x80500000 + i * 0x10000
             self.write(obj + 0x2C, fp)
             self.write(fp + 4, 27 + i if i < 2 else 0)
+            self.write(fp + 0x0C, (i + 2) % 4)
             self.write(fp + 0x10, 341)
             self.write(fp + 0x1844, 0x3F800000)
             self.write(fp + 0x38, 0x3F800000)
@@ -101,6 +105,13 @@ class Runtime:
         result = 0
         if name == "GET_HAND":
             result = self.hands.get(a, 0)
+        elif name == "ATTACH_VICTIM":
+            self.attachments.append((a, b))
+        elif name == "CAPTURE_FOLLOW":
+            self.follow_calls.append(a)
+        elif name == "PLAYER_SET_SLOT_POS":
+            position = struct.unpack(">3f", u.mem_read(self.reg(5), 12))
+            self.nametag_positions[(a, b)] = position
         elif name == "RANDI":
             result = self.rng % a
         elif name == "CHANGE_STATE":
@@ -307,6 +318,25 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
+    def test_manual_nametag_sync_reads_byte_sized_player_slot(self):
+        _, runtime, symbols, _ = build(SETTINGS, manual=True)
+        # Match Fighter_procPlayer: lbz r3,0x0c(r31), not lwz.
+        slot_load = symbols["sync_captured_fighter"] + 0x28
+        self.assertEqual(struct.unpack(">I", runtime[slot_load:slot_load + 4])[0],
+                         0x887E000C)
+        self.assertEqual(struct.unpack(">I", runtime[slot_load + 4:slot_load + 8])[0],
+                         0x889E221F)
+
+    def test_manual_null_victim_branch_skips_callback_install_thunk(self):
+        _, code, symbols, _ = build(SETTINGS, manual=True)
+        branch_pc = symbols["attach_captured"] + 0x24
+        word = struct.unpack(">I", code[branch_pc:branch_pc + 4])[0]
+        displacement = word & 0x0000FFFC
+        if displacement & 0x00008000:
+            displacement -= 0x00010000
+        self.assertEqual(branch_pc + displacement,
+                         symbols["attach_captured_done"])
+
     def test_c2_branch_back_slot_and_line_count(self):
         for count in (1, 2, 3):
             lines = c2(0x80100000, b"\x60\x00\x00\x00" * count)
@@ -376,6 +406,35 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual([e[2] for e in creates], [r.MH, r.CH])
         resets = [e for e in r.events if e[1] == "RESET_HIT_VICTIMS"]
         self.assertEqual(len(resets), 4)
+
+    def test_manual_capture_attaches_each_fighter_and_installs_position_callback(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertTrue(r.capture(r.MH, r.A))
+        self.assertTrue(r.capture(r.MH, r.B))
+        # US 1.00 ATTACH_VICTIM ABI: hand Fighter, then captured Fighter.
+        self.assertEqual(r.attachments, [
+            (r.fp(r.MH), r.fp(r.A)),
+            (r.fp(r.MH), r.fp(r.B)),
+        ])
+        for victim in (r.A, r.B):
+            self.assertEqual(r.read(r.fp(victim) + 0x21B0),
+                             r.BASE + r.symbols["sync_captured_fighter"])
+
+    def test_manual_capture_callback_updates_player_nametag_coordinates(self):
+        r = Runtime(manual=True)
+        cases = (
+            (r.A, 0, 0, (12.5, 34.0, 0.0)),
+            (r.B, 1, 1, (-22.0, 18.5, 0.0)),
+        )
+        for victim, slot, sub_fighter, position in cases:
+            fp = r.fp(victim)
+            r.write(fp + 0x0C, slot)
+            r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
+            r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+            r.invoke("sync_captured_fighter", victim)
+            self.assertEqual(r.follow_calls[-1], victim)
+            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], position)
 
     def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
         for hand, damage in ((Runtime.MH, 42), (Runtime.CH, 51)):
