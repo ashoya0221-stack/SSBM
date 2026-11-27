@@ -262,7 +262,7 @@ def build(settings, force_combo=False, manual=False):
             raise ValueError("US 1.00 manual pair gate must remain request 380")
         source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
                                 "tag_anim:\nENTER\nmr 31,3\n"
-                                "bl sync_captured_slots\nbl manual_grab_tick\n")
+                                "bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick\n")
         source = source.replace("# Data use no absolute relocations.",
                                 (ROOT / "patches/manual_grab.s").read_text()
                                 + "\n# Data use no absolute relocations.")
