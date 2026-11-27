@@ -50,6 +50,8 @@ FUNCTIONS = {
     "TAKE_DAMAGE": 0x8006CB20, "RECORD_HIT": 0x80078648,
     "APPLY_FLOWER": 0x8007F9C4, "HIT_EFFECT": 0x80078264,
     "RESET_HIT_VICTIMS": 0x80008440,
+    "ATTACH_VICTIM": 0x800DAF1C, "CAPTURE_FOLLOW": 0x800DB018,
+    "PLAYER_SET_SLOT_POS": 0x800327A8,
 }
 
 
@@ -133,14 +135,16 @@ def expand(source, settings):
             for key, value in constants.items():
                 line = re.sub(r"\b" + key + r"\b", str(value), line)
             lines.append(line)
-    # Share repeated native call veneers. The final label is the hook's branch
-    # around its helpers/data, so keep veneers before that label's terminal nop.
+    # Share repeated native call veneers before runtime_end. Manual builds
+    # keep the capture-follow helper after that marker, so the hook branch must
+    # skip the veneers and the appended helper block.
     veneers = []
     for name in sorted(thunks):
         value = constants[name]
         veneers += [f"native_{name}:", f"lis 12,{value >> 16}",
                     f"ori 12,12,{value & 0xFFFF}", "mtctr 12", "bctr"]
-    lines[-2:-2] = veneers
+    tail = lines.index("runtime_end:")
+    lines[tail:tail] = veneers
     labels, pc = {}, 0
     for line in lines:
         if line.endswith(":"):
@@ -193,6 +197,18 @@ def build(settings, force_combo=False, manual=False):
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
     source = (ROOT / "patches/tagtsukamu.s").read_text()
+    if not manual:
+        # Keep the established CPU v4 outputs unchanged: the follow add-on is
+        # reserved for the manual Human build until its runtime is verified.
+        if source.count("bl attach_captured\\n") != 1:
+            raise ValueError("manual capture-follow call site is missing")
+        if source.count("runtime_end:\\nnop\\nb runtime_exit\\n") != 1:
+            raise ValueError("manual capture-follow runtime tail is missing")
+        source = source.replace("bl attach_captured\\n", "bl get_slots\\n", 1)
+        start = source.index("runtime_end:\\nnop\\nb runtime_exit\\n")
+        end_marker = "runtime_exit:\\nnop"
+        end = source.index(end_marker, start) + len(end_marker)
+        source = source[:start] + "runtime_end:\\nnop" + source[end:]
     hook = 0x8015A114 if manual else 0x8014FB2C
     if manual:
         _, body = source.split("start_pair:\n", 1)
