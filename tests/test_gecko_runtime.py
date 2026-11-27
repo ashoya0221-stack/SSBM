@@ -445,7 +445,7 @@ class RuntimeTests(unittest.TestCase):
             (r.fp(r.MH), r.fp(r.B)),
         ])
         for victim in (r.A, r.B):
-            self.assertEqual(r.read(r.fp(victim) + 0x21B0),
+            self.assertEqual(r.read(r.fp(victim) + 0x21AC),
                              r.BASE + r.symbols["sync_captured_fighter"])
 
     def test_manual_capture_callback_updates_player_nametag_coordinates(self):
