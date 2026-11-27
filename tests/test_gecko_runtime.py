@@ -35,6 +35,8 @@ class Runtime:
         self.u.mem_write(self.BASE, self.code)
         self.u.reg_write(UC_PPC_REG_MSR, 0x2000)  # enable floating-point instructions
         self.hands = {27: self.MH, 28: self.CH}
+        self.player_slots = {2: self.MH, 3: self.CH}
+        self.player_slot_lookups = []
         self.frames_remaining = {}
         self.damage = {self.A: 0, self.B: 0}
         self.pummels, self.throws, self.cuts = [], [], []
@@ -105,6 +107,9 @@ class Runtime:
         result = 0
         if name == "GET_HAND":
             result = self.hands.get(a, 0)
+        elif name == "PLAYER_GET_ENTITY":
+            self.player_slot_lookups.append(a)
+            result = self.player_slots.get(a, 0)
         elif name == "ATTACH_VICTIM":
             self.attachments.append((a, b))
         elif name == "CAPTURE_FOLLOW":
@@ -318,12 +323,14 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
-    def test_manual_build_keeps_the_working_v6_arrival_hook(self):
-        text, _, symbols, _ = build(SETTINGS, manual=True)
-        self.assertIn("C215A114", text)
-        self.assertNotIn("C2150320", text)
+    def test_manual_build_uses_the_3p_master_human_hook(self):
+        text, _, symbols, expanded = build(SETTINGS, manual=True)
+        self.assertIn("C2150320", text)
+        self.assertNotIn("C215A114", text)
         self.assertIn("sync_captured_fighter", symbols)
         self.assertIn("on_grab", symbols)
+        self.assertIn("mr 3,30", expanded)
+        self.assertIn("PLAYER_GET_ENTITY", expanded)
 
     def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
         _, _, symbols, _ = build(SETTINGS, manual=False)
@@ -385,18 +392,30 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(r.moves[1], (r.MH, r.BASE + r.symbols["start_pair"],
                                     (44.0, 30.0, 0.0)))
 
-    def test_manual_arrival_loader_preserves_gobj_and_resets_on_heap_recreation(self):
+    def test_manual_3p_master_hook_loads_runtime_and_reuses_heap(self):
         r = Runtime(manual=True)
         r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
-        r.run_hook(0, {3: r.CH})
+        # 0x80150320 replaces stfs f0,0x18(r1) in the Human MH partner-request
+        # branch. The original GObj arrives in r30; the stack vector is +0x10.
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(r.moves[-1], (r.MH, r.BASE + r.symbols["start_pair"],
                                      (44.0, 30.0, 0.0)))
-        self.assertEqual(r.reg(3), r.CH)
+        self.assertEqual(r.reg(30), r.MH)
         self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
         r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
-        r.run_hook(0, {3: r.CH})
+        r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(len(r.allocations), 2)
-        self.assertEqual(r.reg(3), r.CH)
+        self.assertEqual(r.reg(30), r.MH)
+
+    def test_manual_core_uses_master_p3_and_crazy_p4_player_slots(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertIn(3, r.player_slot_lookups)  # Crazy Hand is P4.
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
+        r.invoke("tag_anim", r.CH)
+        self.assertIn(2, r.player_slot_lookups)  # Master Hand is P3.
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)
