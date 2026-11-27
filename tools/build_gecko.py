@@ -33,7 +33,8 @@ DAT_HASHES = {
 FUNCTIONS = {
     "MASTER_MOVE": 0x80150474, "CRAZY_MOVE": 0x8015B080,
     "MASTER_IDLE": 0x801506C8, "CRAZY_IDLE": 0x8015B2D4,
-    "GET_HAND": 0x8015BA34, "CHANGE_STATE": 0x80069288,
+    "GET_HAND": 0x8015BA34, "PLAYER_GET_ENTITY": 0x80034090,
+    "CHANGE_STATE": 0x80069288,
     "ANIM_INIT": 0x8006EA48, "ANIM_REMAINING": 0x8006F0DC,
     "INIT_GRAB": 0x8007E034, "SET_GRAB_MASK": 0x8007E058,
     "CLEAR_HITBOXES": 0x8007AD14, "CREATE_HITBOX": 0x800710A8,
@@ -233,11 +234,32 @@ def build(settings, force_combo=False, manual=False):
         end_marker = "runtime_exit:\nnop"
         end = source.index(end_marker, start) + len(end_marker)
         source = source[:start] + "runtime_end:\nnop" + source[end:]
-    hook = 0x8015A114 if manual else 0x8014FB2C
+    hook = 0x80150320 if manual else 0x8014FB2C
     if manual:
-        _, body = source.split("start_pair:\n", 1)
-        entry = (ROOT / "patches/manual_entry.s").read_text()
+        # The tested Human path is two-stage: 4P starts CH and leaves request
+        # 380 pending; 3P's MH input handler then reaches its partner-request
+        # branch at 0x80150320. Reuse its original GObj and vector stack ABI.
+        entry, body = source.split("start_pair:\n", 1)
+        replacements = (
+            ("stfs 0,0x34(1)", "stfs 0,0x18(1)"),
+            ("mr 3,28", "mr 3,30"),
+            ("addi 5,1,0x8c", "addi 5,1,0x70"),
+        )
+        for old, new in replacements:
+            if entry.count(old) != 1:
+                raise ValueError(f"manual MH entry expected exactly one {old!r}")
+            entry = entry.replace(old, new, 1)
         source = entry + "start_pair:\n" + body
+        if source.count("li 3,28\nCALL GET_HAND") != 2 or source.count(
+                "li 3,27\nCALL GET_HAND") != 1:
+            raise ValueError("unexpected manual MH/CH lookup call sites")
+        # Normal Versus slots are P3=2 (Master Hand) and P4=3 (Crazy Hand).
+        source = source.replace("li 3,28\nCALL GET_HAND",
+                                "li 3,3\nCALL PLAYER_GET_ENTITY")
+        source = source.replace("li 3,27\nCALL GET_HAND",
+                                "li 3,2\nCALL PLAYER_GET_ENTITY")
+        if source.count("lwz 0,0x2250(28)\ncmpwi 0,380\nbne start_cancel") != 1:
+            raise ValueError("US 1.00 manual pair gate must remain request 380")
         source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
                                 "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
         source = source.replace("# Data use no absolute relocations.",
@@ -297,8 +319,10 @@ def build(settings, force_combo=False, manual=False):
     back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
                        0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
     packed = pack_runtime(runtime + back)
+    # The direct MH hook uses r30 for its incoming GObj; ENTER/LEAVE_HOOK
+    # preserve r26-r31. r3 is intentionally not part of this callback ABI.
     loader, loader_labels, _ = assemble(
-        loader_source(packed, len(runtime) + len(back), preserve_r3=manual), settings)
+        loader_source(packed, len(runtime) + len(back), preserve_r3=False), settings)
     reset, sound_mask = helper_sources(loader_labels["loaded_core"], hook)
     reset_code, _, _ = assemble(reset, settings)
     sound_code, _, _ = assemble(sound_mask, settings)
