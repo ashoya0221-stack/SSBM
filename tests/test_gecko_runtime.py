@@ -331,6 +331,7 @@ class EncodingTests(unittest.TestCase):
         self.assertIn("on_grab", symbols)
         self.assertIn("mr 3,30", expanded)
         self.assertIn("PLAYER_GET_ENTITY", expanded)
+        self.assertIn("bl sync_captured_slots\\nbl manual_grab_tick", expanded)
 
     def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
         _, _, symbols, _ = build(SETTINGS, manual=False)
@@ -434,7 +435,7 @@ class RuntimeTests(unittest.TestCase):
         resets = [e for e in r.events if e[1] == "RESET_HIT_VICTIMS"]
         self.assertEqual(len(resets), 4)
 
-    def test_manual_capture_attaches_each_fighter_and_installs_position_callback(self):
+    def test_manual_capture_attaches_each_fighter_without_callback_pointer_patch(self):
         r = Runtime(manual=True)
         r.invoke("start_pair", r.MH)
         self.assertTrue(r.capture(r.MH, r.A))
@@ -445,8 +446,27 @@ class RuntimeTests(unittest.TestCase):
             (r.fp(r.MH), r.fp(r.B)),
         ])
         for victim in (r.A, r.B):
-            self.assertEqual(r.read(r.fp(victim) + 0x21AC),
-                             r.BASE + r.symbols["sync_captured_fighter"])
+            self.assertEqual(r.read(r.fp(victim) + 0x21AC), 0)
+
+    def test_manual_per_frame_sync_updates_both_captured_player_nametags(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertTrue(r.capture(r.MH, r.A))
+        self.assertTrue(r.capture(r.MH, r.B))
+        cases = (
+            (r.A, 0, 0, (12.5, 34.0, 0.0)),
+            (r.B, 1, 1, (-22.0, 18.5, 0.0)),
+        )
+        for victim, slot, sub_fighter, position in cases:
+            fp = r.fp(victim)
+            r.u.mem_write(fp + 0x0C, bytes([slot]))
+            r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
+            r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+        r.invoke("sync_captured_slots", r.MH)
+        for victim, slot, sub_fighter, position in cases:
+            self.assertIn((slot, sub_fighter), r.nametag_positions)
+            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], position)
+        self.assertEqual(r.follow_calls, [r.A, r.B])
 
     def test_manual_capture_callback_updates_player_nametag_coordinates(self):
         r = Runtime(manual=True)
