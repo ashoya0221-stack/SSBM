@@ -331,7 +331,7 @@ class EncodingTests(unittest.TestCase):
         self.assertIn("on_grab", symbols)
         self.assertIn("mr 3,30", expanded)
         self.assertIn("PLAYER_GET_ENTITY", expanded)
-        self.assertIn("bl sync_captured_slots\nbl manual_grab_tick", expanded)
+        self.assertIn("bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick", expanded)
 
     def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
         _, _, symbols, _ = build(SETTINGS, manual=False)
