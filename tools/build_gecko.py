@@ -222,7 +222,7 @@ def build(settings, force_combo=False, manual=False):
             "beq on_grab_slots_ready\n"
             "lwz 11,0x2c(10)\n"
             "PTR 12,sync_captured_fighter\n"
-            "stw 12,0x21b0(11)\n"
+            "stw 12,0x21ac(11)\n"
             "on_grab_slots_ready:\n"
         )
         if source.count(manual_follow) != 1:
