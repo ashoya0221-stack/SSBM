@@ -201,13 +201,34 @@ def build(settings, force_combo=False, manual=False):
             raise ValueError("invalid damage or element")
     source = (ROOT / "patches/tagtsukamu.s").read_text()
     if not manual:
-        # Keep the established CPU v4 outputs unchanged: the follow add-on is
-        # reserved for the manual Human build until its runtime is verified.
-        if source.count("bl attach_captured\n") != 1:
-            raise ValueError("manual capture-follow call site is missing")
+        # Keep the established CPU v4 runtime unchanged: remove the Human-only
+        # attachment and Player nametag callback while retaining get_slots.
+        manual_follow = (
+            "bl get_slots\n"
+            "mr 26,8\n"
+            "mr 27,9\n"
+            "lwz 10,0x1a58(8)\n"
+            "cmpwi 10,0\n"
+            "beq on_grab_slots_ready\n"
+            "lwz 11,0x2c(10)\n"
+            "mr 3,8\n"
+            "mr 4,11\n"
+            "CALL ATTACH_VICTIM\n"
+            "mr 8,26\n"
+            "mr 9,27\n"
+            "lwz 10,0x1a58(8)\n"
+            "cmpwi 10,0\n"
+            "beq on_grab_slots_ready\n"
+            "lwz 11,0x2c(10)\n"
+            "PTR 12,sync_captured_fighter\n"
+            "stw 12,0x21b0(11)\n"
+            "on_grab_slots_ready:\n"
+        )
+        if source.count(manual_follow) != 1:
+            raise ValueError("manual capture-follow block is missing")
         if source.count("runtime_end:\nnop\nb runtime_exit\n") != 1:
             raise ValueError("manual capture-follow runtime tail is missing")
-        source = source.replace("bl attach_captured\n", "bl get_slots\n", 1)
+        source = source.replace(manual_follow, "bl get_slots\n", 1)
         start = source.index("runtime_end:\nnop\nb runtime_exit\n")
         end_marker = "runtime_exit:\nnop"
         end = source.index(end_marker, start) + len(end_marker)
