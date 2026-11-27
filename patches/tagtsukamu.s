@@ -112,7 +112,7 @@ LEAVE
 # Keep native acceptance open until this hand has captured two distinct victims.
 on_grab:
 ENTER
-bl get_slots
+bl attach_captured
 lwz 10,0x1a58(8)
 lwz 0,0(9)
 cmpw 0,10
@@ -773,4 +773,54 @@ THROW_DATA_MH
 throw_ch:
 THROW_DATA_CH
 runtime_end:
+nop
+b runtime_exit
+
+# Attach the captured fighter's model root to the hand's TransN2 bone.
+# The native accessory callback updates Fighter.cur_pos from the attached root;
+# sync_captured_fighter then mirrors that position into Player's nametag coordinates.
+attach_captured:
+stwu 1,-0x40(1)
+mflr 0
+stw 0,0x44(1)
+bl get_slots
+lwz 10,0x1a58(8)
+stw 8,0x28(1)
+stw 9,0x2c(1)
+stw 10,0x30(1)
+cmpwi 10,0
+beq attach_captured_done
+lwz 11,0x2c(10)
+mr 3,8
+mr 4,11
+CALL ATTACH_VICTIM
+lwz 10,0x30(1)
+lwz 11,0x2c(10)
+PTR 12,sync_captured_fighter
+stw 12,0x21b0(11)
+attach_captured_done:
+lwz 8,0x28(1)
+lwz 9,0x2c(1)
+lwz 10,0x30(1)
+lwz 0,0x44(1)
+mtlr 0
+addi 1,1,0x40
+blr
+# Accessory callback: first let the native capture routine refresh Fighter.cur_pos,
+# then mirror that position into Player's active transformed slot. The nametag
+# UI reads Player_LoadPlayerCoords, not Fighter.cur_pos directly. The normal
+# Fighter_procPlayer sync is skipped while is_sleeping is set during capture.
+sync_captured_fighter:
+ENTER
+mr 31,3
+CALL CAPTURE_FOLLOW
+lwz 30,0x2c(31)
+lbz 3,0x0c(30)
+lbz 4,0x221f(30)
+rlwinm 4,4,29,31,31
+addi 5,30,0xb0
+CALL PLAYER_SET_SLOT_POS
+LEAVE
+
+runtime_exit:
 nop
