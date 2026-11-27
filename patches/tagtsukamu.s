@@ -788,10 +788,9 @@ runtime_end:
 nop
 b runtime_exit
 
-# Accessory callback: first let the native capture routine refresh Fighter.cur_pos,
-# then mirror that position into Player's active transformed slot. The nametag
-# UI reads Player_LoadPlayerCoords, not Fighter.cur_pos directly. The normal
-# Fighter_procPlayer sync is skipped while is_sleeping is set during capture.
+# Per-victim sync helper, called from sync_captured_slots on every hand tick.
+# Refresh the attached Fighter position from the hand joint, then mirror it into
+# Player's active transformed slot; the nametag UI reads Player coordinates.
 sync_captured_fighter:
 ENTER
 mr 31,3
