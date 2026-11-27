@@ -318,6 +318,17 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
+    def test_manual_build_keeps_the_working_v6_arrival_hook(self):
+        text, _, symbols, _ = build(SETTINGS, manual=True)
+        self.assertIn("C215A114", text)
+        self.assertNotIn("C2150320", text)
+        self.assertIn("sync_captured_fighter", symbols)
+
+    def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
+        _, _, symbols, _ = build(SETTINGS, manual=False)
+        self.assertNotIn("attach_captured", symbols)
+        self.assertNotIn("sync_captured_fighter", symbols)
+
     def test_manual_nametag_sync_reads_byte_sized_player_slot(self):
         _, runtime, symbols, _ = build(SETTINGS, manual=True)
         # Match Fighter_procPlayer: lbz r3,0x0c(r31), not lwz.
