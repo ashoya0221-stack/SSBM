@@ -200,15 +200,15 @@ def build(settings, force_combo=False, manual=False):
     if not manual:
         # Keep the established CPU v4 outputs unchanged: the follow add-on is
         # reserved for the manual Human build until its runtime is verified.
-        if source.count("bl attach_captured\\n") != 1:
+        if source.count("bl attach_captured\n") != 1:
             raise ValueError("manual capture-follow call site is missing")
-        if source.count("runtime_end:\\nnop\\nb runtime_exit\\n") != 1:
+        if source.count("runtime_end:\nnop\nb runtime_exit\n") != 1:
             raise ValueError("manual capture-follow runtime tail is missing")
-        source = source.replace("bl attach_captured\\n", "bl get_slots\\n", 1)
-        start = source.index("runtime_end:\\nnop\\nb runtime_exit\\n")
-        end_marker = "runtime_exit:\\nnop"
+        source = source.replace("bl attach_captured\n", "bl get_slots\n", 1)
+        start = source.index("runtime_end:\nnop\nb runtime_exit\n")
+        end_marker = "runtime_exit:\nnop"
         end = source.index(end_marker, start) + len(end_marker)
-        source = source[:start] + "runtime_end:\\nnop" + source[end:]
+        source = source[:start] + "runtime_end:\nnop" + source[end:]
     hook = 0x8015A114 if manual else 0x8014FB2C
     if manual:
         _, body = source.split("start_pair:\n", 1)
