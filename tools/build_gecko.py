@@ -135,16 +135,19 @@ def expand(source, settings):
             for key, value in constants.items():
                 line = re.sub(r"\b" + key + r"\b", str(value), line)
             lines.append(line)
-    # Share repeated native call veneers before runtime_end. Manual builds
-    # keep the capture-follow helper after that marker, so the hook branch must
-    # skip the veneers and the appended helper block.
+    # Keep the manual capture-follow helper after runtime_end, so its hook
+    # branch skips the veneers. Short standalone snippets (selector/request/
+    # reset hooks) have no runtime_end label and retain the original tail slot.
     veneers = []
     for name in sorted(thunks):
         value = constants[name]
         veneers += [f"native_{name}:", f"lis 12,{value >> 16}",
                     f"ori 12,12,{value & 0xFFFF}", "mtctr 12", "bctr"]
-    tail = lines.index("runtime_end:")
-    lines[tail:tail] = veneers
+    if "runtime_end:" in lines:
+        tail = lines.index("runtime_end:")
+        lines[tail:tail] = veneers
+    else:
+        lines[-2:-2] = veneers
     labels, pc = {}, 0
     for line in lines:
         if line.endswith(":"):
