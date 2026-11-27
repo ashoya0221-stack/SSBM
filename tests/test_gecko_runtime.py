@@ -323,6 +323,7 @@ class EncodingTests(unittest.TestCase):
         self.assertIn("C215A114", text)
         self.assertNotIn("C2150320", text)
         self.assertIn("sync_captured_fighter", symbols)
+        self.assertIn("on_grab", symbols)
 
     def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
         _, _, symbols, _ = build(SETTINGS, manual=False)
@@ -338,15 +339,11 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(struct.unpack(">I", runtime[slot_load + 4:slot_load + 8])[0],
                          0x889E221F)
 
-    def test_manual_null_victim_branch_skips_callback_install_thunk(self):
-        _, code, symbols, _ = build(SETTINGS, manual=True)
-        branch_pc = symbols["attach_captured"] + 0x24
-        word = struct.unpack(">I", code[branch_pc:branch_pc + 4])[0]
-        displacement = word & 0x0000FFFC
-        if displacement & 0x00008000:
-            displacement -= 0x00010000
-        self.assertEqual(branch_pc + displacement,
-                         symbols["attach_captured_done"])
+    def test_manual_empty_capture_skips_native_attachment(self):
+        r = Runtime(manual=True)
+        r.invoke("on_grab", r.MH)
+        self.assertEqual(r.attachments, [])
+        self.assertEqual(r.read(r.fp(r.MH) + 0x1A58), 0)
 
     def test_c2_branch_back_slot_and_line_count(self):
         for count in (1, 2, 3):
