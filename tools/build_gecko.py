@@ -327,8 +327,16 @@ def build(settings, force_combo=False, manual=False):
     lines.append("E0000000 80008000")
     # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
     # and the 8-byte code-list header. Do not silently emit an oversized code.
-    if len(lines) * 8 > 3256:
-        raise ValueError(f"patch exceeds Dolphin's default Gecko code-list capacity: {len(lines) * 8} > 3256 bytes")
+    code_list_bytes = len(lines) * 8
+    if code_list_bytes > 3256:
+        raise ValueError(f"patch exceeds Dolphin's default Gecko code-list capacity: {code_list_bytes} > 3256 bytes")
+    # The user's supplied GALE01.ini also enables the 88-byte widescreen Gecko
+    # code. Reserve that space in the manual build so both codes fit together.
+    if manual and code_list_bytes + 88 > 3256:
+        raise ValueError(
+            f"manual patch plus existing widescreen code exceeds Gecko capacity: "
+            f"{code_list_bytes} + 88 > 3256 bytes"
+        )
     return "\n".join(lines) + "\n", runtime, symbols, expanded
 
 
