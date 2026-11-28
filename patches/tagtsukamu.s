@@ -800,10 +800,9 @@ lbz 29,0x0c(30)
 lbz 28,0x221f(30)
 rlwinm 28,28,29,31,31
 # P4 is Crazy Hand. Resolve its current animated joint position for the tag.
+# P4's hand object is guaranteed by the manual two-player activation path.
 li 3,3
 CALL PLAYER_GET_ENTITY
-cmpwi 3,0
-beq sync_nametag_fallback
 lwz 3,0x2c(3)
 lwz 3,0x5e8(3)
 lwz 3,0x120(3)
@@ -814,14 +813,6 @@ mr 3,29
 mr 4,28
 addi 5,1,0x30
 CALL PLAYER_SET_SLOT_POS
-b sync_nametag_done
-sync_nametag_fallback:
-# Preserve the previous coordinate if Crazy Hand's player object is unavailable.
-mr 3,29
-mr 4,28
-addi 5,30,0xb0
-CALL PLAYER_SET_SLOT_POS
-sync_nametag_done:
 LEAVE
 
 runtime_exit:
