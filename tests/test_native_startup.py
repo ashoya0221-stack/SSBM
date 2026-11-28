@@ -87,9 +87,10 @@ class NativeStartupTests(unittest.TestCase):
         self.write(0x804BFE2C + 0xCC, buttons)
         self.call_native(0x80155A84, {3: self.CH}, count=200000)
 
-    def request_master(self, buttons=0x0801):
-        # 3P's actual Human MH handler. A later idle tick reads the partner's
-        # request through 0x8015BB10 and reaches the hooked 0x80150320 branch.
+    def request_master(self, buttons=0x0808):
+        # P3 Y + D-pad Up (0x0808) is the partner-request branch:
+        # while held, MH reads CH's request through 0x8015BB10 and,
+        # for request 380, reaches the hook at 0x80150320.
         self.write(0x804BFE2C + 0x88, buttons)
         self.call_native(0x8014FF44, {3: self.OBJ}, count=200000)
 
@@ -111,10 +112,9 @@ class NativeStartupTests(unittest.TestCase):
         self.assertEqual(len(self.moves), 1)  # CH only: 4P input does not auto-start MH
         self.assertEqual(self.read(0x804BFE2C + 0x88), 0)
 
-        self.request_master(0x0801)  # 3P Y + D-pad Up: enter native MH request state
-        self.assertEqual(self.read(self.FP + 0x2250), 380)
-        self.assertEqual(self.read(self.FP + 0x10), 373)
-        self.request_master(0)  # next Human tick sees CH's pending request 380
+        self.request_master(0x0808)  # Hold 3P Y + D-pad Up while CH request 380 is pending.
+        # This branch reads CH's request directly. It does not set MH's own
+        # request field or enter the separate native action-373 path.
         self.assertEqual(len(self.moves), 2)
         self.assertEqual(self.moves[1],
                          (self.OBJ, self.CORE + self.symbols["start_pair"], (44, 30, 0)))
@@ -128,10 +128,8 @@ class NativeStartupTests(unittest.TestCase):
             self.assertEqual(self.read(fp + 0x2190), self.CORE + self.symbols["on_grab"])
         self.assertEqual(bytes(self.u.mem_read(self.CORE, len(self.code))), self.code)
 
-    def test_3p_master_request_alone_does_not_start_without_ch_request_380(self):
-        self.request_master(0x0801)
-        self.assertEqual(self.read(self.FP + 0x2250), 380)
-        self.request_master(0)
+    def test_3p_y_up_does_not_start_without_ch_request_380(self):
+        self.request_master(0x0808)
         self.assertFalse(any(obj == self.OBJ for obj, _, _ in self.moves))
 
     def test_other_three_4p_requests_do_not_trigger_the_tagtsukamu_master_branch(self):
@@ -141,6 +139,10 @@ class NativeStartupTests(unittest.TestCase):
                 self.request_crazy(buttons)
                 self.assertEqual(self.read(self.CHF + 0x2250), requested)
                 self.crazy_arrives()
-                self.request_master(0)
-                self.assertFalse(any(obj == self.OBJ for obj, _, _ in self.moves))
+                previous_moves = len(self.moves)
+                self.request_master(0x0808)
+                expected_callbacks = {377: 0x80154844, 378: 0x80154998, 379: 0x80154B14}
+                self.assertEqual(len(self.moves), previous_moves + 1)
+                self.assertEqual(self.moves[-1][0], self.OBJ)
+                self.assertEqual(self.moves[-1][1], expected_callbacks[requested])
                 self.assertEqual(self.registrations, [])
