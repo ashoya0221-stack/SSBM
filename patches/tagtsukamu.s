@@ -788,31 +788,12 @@ runtime_end:
 nop
 b runtime_exit
 
-# Per-victim sync helper, called from sync_captured_slots on every hand tick.
-# Keep the captured Fighter attached to its actual capturing hand. The nametag
-# alone is anchored to Crazy Hand's animated root/palm joint (joint 0).
+# Per-victim model sync only. The native Fighter player-update callsite
+# redirects the nametag position while this victim remains in victim_slots.
 sync_captured_fighter:
 ENTER
 mr 31,3
 CALL CAPTURE_FOLLOW
-lwz 30,0x2c(31)
-lbz 29,0x0c(30)
-lbz 28,0x221f(30)
-rlwinm 28,28,29,31,31
-# P4 is Crazy Hand. Resolve its current animated joint position for the tag.
-# P4's hand object is guaranteed by the manual two-player activation path.
-li 3,3
-CALL PLAYER_GET_ENTITY
-lwz 3,0x2c(3)
-lwz 3,0x5e8(3)
-lwz 3,0x120(3)
-li 4,0
-addi 5,1,0x30
-CALL JOINT_WORLD
-mr 3,29
-mr 4,28
-addi 5,1,0x30
-CALL PLAYER_SET_SLOT_POS
 LEAVE
 
 runtime_exit:
