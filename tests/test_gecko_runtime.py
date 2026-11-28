@@ -339,14 +339,13 @@ class EncodingTests(unittest.TestCase):
         self.assertNotIn("attach_captured", symbols)
         self.assertNotIn("sync_captured_fighter", symbols)
 
-    def test_manual_nametag_sync_reads_byte_sized_player_slot(self):
-        _, runtime, symbols, _ = build(SETTINGS, manual=True)
-        # Match Fighter_procPlayer: lbz r3,0x0c(r31), not lwz.
-        slot_load = symbols["sync_captured_fighter"] + 0x28
-        self.assertEqual(struct.unpack(">I", runtime[slot_load:slot_load + 4])[0],
-                         0x887E000C)
-        self.assertEqual(struct.unpack(">I", runtime[slot_load + 4:slot_load + 8])[0],
-                         0x889E221F)
+    def test_manual_nametag_uses_crazy_hand_joint_but_keeps_byte_sized_player_slot(self):
+        _, _, _, expanded = build(SETTINGS, manual=True)
+        self.assertIn("lbz 29,0x0c(30)\\nlbz 28,0x221f(30)\\n"
+                      "rlwinm 28,28,29,31,31", expanded)
+        self.assertIn("li 3,3\\nbl native_PLAYER_GET_ENTITY", expanded)
+        self.assertIn("li 4,0\\naddi 5,1,0x30\\nbl native_JOINT_WORLD", expanded)
+        self.assertIn("bl native_PLAYER_SET_SLOT_POS", expanded)
 
     def test_manual_empty_capture_skips_native_attachment(self):
         r = Runtime(manual=True)
@@ -466,11 +465,11 @@ class RuntimeTests(unittest.TestCase):
         for victim in (r.A, r.B):
             self.assertEqual(r.read(r.fp(victim) + 0x21AC), 0)
 
-    def test_manual_per_frame_sync_updates_both_captured_player_nametags(self):
+    def test_manual_per_frame_sync_forces_both_hands_nametags_to_crazy_hand(self):
         r = Runtime(manual=True)
         r.invoke("start_pair", r.MH)
         self.assertTrue(r.capture(r.MH, r.A))
-        self.assertTrue(r.capture(r.MH, r.B))
+        self.assertTrue(r.capture(r.CH, r.B))
         cases = (
             (r.A, 0, 0, (12.5, 34.0, 0.0)),
             (r.B, 1, 1, (-22.0, 18.5, 0.0)),
@@ -481,13 +480,21 @@ class RuntimeTests(unittest.TestCase):
             r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
             r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
         r.invoke("sync_captured_slots", r.MH)
-        for victim, slot, sub_fighter, position in cases:
+        r.invoke("sync_captured_slots", r.CH)
+        ch_fp = r.fp(r.CH)
+        ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
+        ch_position = r.joints[ch_joint]
+        for victim, slot, sub_fighter, _ in cases:
             self.assertIn((slot, sub_fighter), r.nametag_positions)
-            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], position)
+            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
         self.assertEqual(r.follow_calls, [r.A, r.B])
+        self.assertIn(3, r.player_slot_lookups)
 
-    def test_manual_capture_callback_updates_player_nametag_coordinates(self):
+    def test_manual_capture_callback_forces_each_nametag_to_crazy_hand(self):
         r = Runtime(manual=True)
+        ch_fp = r.fp(r.CH)
+        ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
+        ch_position = r.joints[ch_joint]
         cases = (
             (r.A, 0, 0, (12.5, 34.0, 0.0)),
             (r.B, 1, 1, (-22.0, 18.5, 0.0)),
@@ -501,7 +508,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(r.follow_calls[-1], victim)
             self.assertIn((slot, sub_fighter), r.nametag_positions,
                           f"nametag calls were {r.nametag_positions}")
-            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], position)
+            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
+        self.assertEqual(r.player_slot_lookups.count(3), 2)
 
     def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
         for hand, damage in ((Runtime.MH, 42), (Runtime.CH, 51)):
