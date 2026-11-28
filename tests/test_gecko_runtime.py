@@ -341,10 +341,10 @@ class EncodingTests(unittest.TestCase):
 
     def test_manual_nametag_uses_crazy_hand_joint_but_keeps_byte_sized_player_slot(self):
         _, _, _, expanded = build(SETTINGS, manual=True)
-        self.assertIn("lbz 29,0x0c(30)\\nlbz 28,0x221f(30)\\n"
+        self.assertIn("lbz 29,0x0c(30)\nlbz 28,0x221f(30)\n"
                       "rlwinm 28,28,29,31,31", expanded)
-        self.assertIn("li 3,3\\nbl native_PLAYER_GET_ENTITY", expanded)
-        self.assertIn("li 4,0\\naddi 5,1,0x30\\nbl native_JOINT_WORLD", expanded)
+        self.assertIn("li 3,3\nbl native_PLAYER_GET_ENTITY", expanded)
+        self.assertIn("li 4,0\naddi 5,1,0x30\nbl native_JOINT_WORLD", expanded)
         self.assertIn("bl native_PLAYER_SET_SLOT_POS", expanded)
 
     def test_manual_empty_capture_skips_native_attachment(self):
