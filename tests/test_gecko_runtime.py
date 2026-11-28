@@ -330,7 +330,6 @@ class EncodingTests(unittest.TestCase):
         self.assertIn("C206D91C", text)
         self.assertNotIn("C215A114", text)
         self.assertIn("sync_captured_fighter", symbols)
-        self.assertIn("override_nametag_position", symbols)
         self.assertIn("on_grab", symbols)
         self.assertIn("mr 3,30", expanded)
         self.assertIn("bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick", expanded)
@@ -339,15 +338,13 @@ class EncodingTests(unittest.TestCase):
         _, _, symbols, _ = build(SETTINGS, manual=False)
         self.assertNotIn("attach_captured", symbols)
         self.assertNotIn("sync_captured_fighter", symbols)
-        self.assertNotIn("override_nametag_position", symbols)
 
-    def test_manual_nametag_redirect_is_installed_at_native_fighter_update(self):
+    def test_manual_native_nametag_callsite_is_hooked(self):
         text, _, symbols, expanded = build(SETTINGS, manual=True)
         self.assertIn("C206D91C", text)
-        self.assertIn("override_nametag_position", symbols)
-        self.assertIn("PLAYER_SET_SLOT_POS", expanded)
-        self.assertIn("victim_slots", symbols)
-        self.assertIn("ori 11,11,0xd920", expanded)  # return to 0x8006D920
+        self.assertIn("sync_captured_fighter", symbols)
+        self.assertIn("GET_HAND", expanded)
+        self.assertIn("JOINT_WORLD", expanded)
 
     def test_manual_empty_capture_skips_native_attachment(self):
         r = Runtime(manual=True)
@@ -467,10 +464,8 @@ class RuntimeTests(unittest.TestCase):
         for victim in (r.A, r.B):
             self.assertEqual(r.read(r.fp(victim) + 0x21AC), 0)
 
-    def test_manual_native_fighter_update_redirects_both_captured_nametags(self):
+    def test_manual_native_nametag_writer_redirects_both_captured_hands_to_crazy_hand(self):
         r = Runtime(manual=True)
-        # Install the runtime via the same 3P MH hook that starts the move.
-        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertTrue(r.capture(r.MH, r.A))
         self.assertTrue(r.capture(r.CH, r.B))
         cases = (
@@ -483,7 +478,6 @@ class RuntimeTests(unittest.TestCase):
             r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
             r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
         r.invoke("sync_captured_slots", r.MH)
-        r.invoke("sync_captured_slots", r.CH)
         self.assertEqual(r.follow_calls, [r.A, r.B])
         ch_fp = r.fp(r.CH)
         ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
@@ -497,11 +491,11 @@ class RuntimeTests(unittest.TestCase):
             })
             self.assertIn((slot, sub_fighter), r.nametag_positions)
             self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
-        self.assertIn(3, r.player_slot_lookups)
+        get_ch = [event for event in r.events if event[1] == "GET_HAND" and event[3] == 0]
+        self.assertTrue(any(event[2] == 28 for event in get_ch))
 
-    def test_manual_native_fighter_update_keeps_uncaptured_coordinates(self):
+    def test_manual_native_nametag_writer_keeps_uncaptured_coordinates(self):
         r = Runtime(manual=True)
-        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         fp = r.fp(r.A)
         position = (12.5, 34.0, 0.0)
         r.u.mem_write(fp + 0x0C, b"\\x00")
