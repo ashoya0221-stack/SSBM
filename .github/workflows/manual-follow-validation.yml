@@ -52,7 +52,7 @@ jobs:
 
           out = ROOT / "dist/Tagtsukamu-US-1.00-manual-follow-experimental.txt"
           out.write_text(gecko, encoding="ascii")
-          resume = 0x8015A114 + 4
+          resume = 0x80150320 + 4
           back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
                              0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
           packed = pack_runtime(runtime + back)
