@@ -43,8 +43,12 @@ jobs:
           gecko, runtime, symbols, _ = build(settings, manual=True)
           lines = gecko.splitlines()
           code_list_bytes = len(lines) * 8
-          if code_list_bytes > 3256:
-              raise SystemExit(f"Gecko code list too large: {code_list_bytes} > 3256")
+          companion_bytes = 88  # Existing Proper 16:9 Widescreen Support code.
+          if code_list_bytes + companion_bytes > 3256:
+              raise SystemExit(
+                  f"Gecko codes exceed capacity together: {code_list_bytes} + "
+                  f"{companion_bytes} > 3256"
+              )
           if "C2150320" not in gecko or "C215A114" in gecko:
               raise SystemExit("manual build does not retain the 3P MH Human hook")
           if "sync_captured_fighter" not in symbols or "on_grab" not in symbols:
@@ -65,6 +69,8 @@ jobs:
               "packed_runtime_bytes": len(packed),
               "gecko_lines": len(lines),
               "gecko_code_list_bytes": code_list_bytes,
+              "existing_widescreen_gecko_bytes": companion_bytes,
+              "combined_gecko_code_list_bytes": code_list_bytes + companion_bytes,
               "gecko_code_list_limit_bytes": 3256,
               "gecko_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
               "symbols": {
