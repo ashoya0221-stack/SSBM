@@ -188,9 +188,9 @@ class NativeReaderTests(unittest.TestCase):
         for offset, value in ((0x11C, -44.0), (0x120, 30.0), (0x13C, 44.0), (0x140, 30.0)):
             self.u.mem_write(0x80961000 + offset, struct.pack(">f", value))
 
-    def test_actual_4p_y_dpad_left_requests_tagtsukamu(self):
+    def test_actual_4p_y_dpad_right_requests_tagtsukamu(self):
         self.setup_manual_input()
-        self.write(0x804BFE2C + 0xCC, 0x0801)  # pad 4: Y + D-pad left
+        self.write(0x804BFE2C + 0xCC, 0x0801)  # pad 4: Y + D-pad right
         self.call_native(0x80156158, {3: self.OBJ})
         self.assertEqual(self.read(self.FP + 0x2250), 380)
         self.assertEqual(self.moves, [(self.OBJ, 0x8015A114, (-44.0, 30.0, 0.0))])
