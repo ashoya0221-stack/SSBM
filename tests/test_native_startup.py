@@ -83,7 +83,7 @@ class NativeStartupTests(unittest.TestCase):
             native.NativeReaderTests.subcall(self, u, address, size, data)
 
     def request_crazy(self, buttons=0x0801):
-        # 4P Y + D-pad Right (0x0801) requests CH move 380.
+        # 4P Y + D-pad Left (0x0801) requests CH move 380.
         self.write(0x804BFE2C + 0xCC, buttons)
         self.call_native(0x80155A84, {3: self.CH}, count=200000)
 
