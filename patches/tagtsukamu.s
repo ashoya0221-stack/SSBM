@@ -789,12 +789,11 @@ nop
 b runtime_exit
 
 # Per-victim model sync only. The native Fighter player-update callsite
-# redirects the nametag position while this victim remains in victim_slots.
+# redirects the nametag coordinate while this victim remains captured.
 sync_captured_fighter:
 ENTER
 mr 31,3
 CALL CAPTURE_FOLLOW
 LEAVE
-
 runtime_exit:
 nop
