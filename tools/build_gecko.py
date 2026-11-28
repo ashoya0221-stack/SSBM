@@ -361,6 +361,8 @@ def build(settings, force_combo=False, manual=False):
             ori 12,12,0x27a8
             mtctr 12
             bctr
+        nametag_dispatch_end:
+        nop
         """
         nametag_dispatch_code, _, _ = assemble(nametag_dispatch, settings)
         lines += c2(0x8006D91C, nametag_dispatch_code)
