@@ -347,7 +347,7 @@ class EncodingTests(unittest.TestCase):
         self.assertIn("override_nametag_position", symbols)
         self.assertIn("PLAYER_SET_SLOT_POS", expanded)
         self.assertIn("victim_slots", symbols)
-        self.assertIn("ori 11,11,55584", expanded)  # return to 0x8006D920
+        self.assertIn("ori 11,11,0xd920", expanded)  # return to 0x8006D920
 
     def test_manual_empty_capture_skips_native_attachment(self):
         r = Runtime(manual=True)
