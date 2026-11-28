@@ -2,6 +2,25 @@
 # the resident command stream. Native CollPos (priority 9) updates its world
 # position before native GrabColl (priority 12) performs eligibility/overlap.
 # Do not award captures by distance or write a victim's ownership here.
+# Run from each hand's tag_anim callback. This does not rely on the native
+# Fighter accessory-callback dispatch gate; synchronize both owned victims.
+sync_captured_slots:
+ENTER
+mr 31,3
+bl get_slots
+mr 27,9
+lwz 3,0(27)
+cmpwi 3,0
+beq sync_second_victim
+bl sync_captured_fighter
+sync_second_victim:
+lwz 3,4(27)
+cmpwi 3,0
+beq sync_slots_done
+bl sync_captured_fighter
+sync_slots_done:
+LEAVE
+
 manual_grab_tick:
 ENTER
 mr 31,3

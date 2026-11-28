@@ -5,6 +5,7 @@ import struct
 import unittest
 
 from tools.build_gecko import ROOT, FUNCTIONS, build, c2, data_words
+from tools.packed_runtime import pack_runtime, unpack_runtime, _pack_runtime_greedy
 
 try:
     from unicorn import Uc, UC_ARCH_PPC, UC_MODE_PPC32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
@@ -35,6 +36,8 @@ class Runtime:
         self.u.mem_write(self.BASE, self.code)
         self.u.reg_write(UC_PPC_REG_MSR, 0x2000)  # enable floating-point instructions
         self.hands = {27: self.MH, 28: self.CH}
+        self.player_slots = {2: self.MH, 3: self.CH}
+        self.player_slot_lookups = []
         self.frames_remaining = {}
         self.damage = {self.A: 0, self.B: 0}
         self.pummels, self.throws, self.cuts = [], [], []
@@ -47,6 +50,9 @@ class Runtime:
         self.hit_generation = 0
         self.grounded = set()
         self.impacts, self.launches, self.allocations = [], [], []
+        self.attachments = []
+        self.follow_calls = []
+        self.nametag_positions = {}
         self.joints = {}
         self.installed_hooks = set()
         self.flowers, self.hit_effects = [], []
@@ -55,6 +61,7 @@ class Runtime:
             fp = 0x80500000 + i * 0x10000
             self.write(obj + 0x2C, fp)
             self.write(fp + 4, 27 + i if i < 2 else 0)
+            self.write(fp + 0x0C, (i + 2) % 4)
             self.write(fp + 0x10, 341)
             self.write(fp + 0x1844, 0x3F800000)
             self.write(fp + 0x38, 0x3F800000)
@@ -101,6 +108,16 @@ class Runtime:
         result = 0
         if name == "GET_HAND":
             result = self.hands.get(a, 0)
+        elif name == "PLAYER_GET_ENTITY":
+            self.player_slot_lookups.append(a)
+            result = self.player_slots.get(a, 0)
+        elif name == "ATTACH_VICTIM":
+            self.attachments.append((a, b))
+        elif name == "CAPTURE_FOLLOW":
+            self.follow_calls.append(a)
+        elif name == "PLAYER_SET_SLOT_POS":
+            position = struct.unpack(">3f", u.mem_read(self.reg(5), 12))
+            self.nametag_positions[(a, b)] = position
         elif name == "RANDI":
             result = self.rng % a
         elif name == "CHANGE_STATE":
@@ -307,11 +324,56 @@ class EncodingTests(unittest.TestCase):
             code, *_ = build(SETTINGS, forced, manual)
             self.assertLessEqual(len(code.splitlines()) * 8, 3256)
 
+    def test_manual_build_uses_the_3p_master_human_hook(self):
+        text, _, symbols, expanded = build(SETTINGS, manual=True)
+        self.assertIn("C2150320", text)
+        self.assertIn("C206D91C", text)
+        self.assertNotIn("C215A114", text)
+        self.assertIn("sync_captured_fighter", symbols)
+        self.assertIn("on_grab", symbols)
+        self.assertIn("mr 3,30", expanded)
+        self.assertIn("bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick", expanded)
+
+    def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
+        _, _, symbols, _ = build(SETTINGS, manual=False)
+        self.assertNotIn("attach_captured", symbols)
+        self.assertNotIn("sync_captured_fighter", symbols)
+
+    def test_manual_native_nametag_callsite_is_hooked(self):
+        text, _, symbols, expanded = build(SETTINGS, manual=True)
+        self.assertIn("C206D91C", text)
+        self.assertIn("sync_captured_fighter", symbols)
+        self.assertIn("GET_HAND", expanded)
+        self.assertIn("JOINT_WORLD", expanded)
+
+    def test_manual_empty_capture_skips_native_attachment(self):
+        r = Runtime(manual=True)
+        r.invoke("on_grab", r.MH)
+        self.assertEqual(r.attachments, [])
+        self.assertEqual(r.read(r.fp(r.MH) + 0x1A58), 0)
+
     def test_c2_branch_back_slot_and_line_count(self):
         for count in (1, 2, 3):
             lines = c2(0x80100000, b"\x60\x00\x00\x00" * count)
             self.assertEqual(int(lines[0].split()[1], 16), len(lines) - 1)
             self.assertTrue(lines[-1].endswith("00000000"))
+
+
+
+class RuntimePackingTests(unittest.TestCase):
+    def test_short_and_overlapping_backreferences_roundtrip(self):
+        samples = (
+            b"abc" * 257,
+            b"ABCD" * 400 + b"XYZ" * 80,
+            bytes(range(256)) * 5,
+            (b"\\x7c\\x08\\x02\\xa6\\x94\\x21\\xff\\xa0" * 180)
+            + bytes(range(128)),
+        )
+        for sample in samples:
+            with self.subTest(size=len(sample)):
+                packed = pack_runtime(sample)
+                self.assertEqual(unpack_runtime(packed, len(sample)), sample)
+                self.assertLessEqual(len(packed), len(_pack_runtime_greedy(sample)))
 
 
 @unittest.skipUnless(AVAILABLE, "install requirements-dev.txt to execute PPC tests")
@@ -347,18 +409,30 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(r.moves[1], (r.MH, r.BASE + r.symbols["start_pair"],
                                     (44.0, 30.0, 0.0)))
 
-    def test_manual_arrival_loader_preserves_gobj_and_resets_on_heap_recreation(self):
+    def test_manual_3p_master_hook_loads_runtime_and_reuses_heap(self):
         r = Runtime(manual=True)
         r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
-        r.run_hook(0, {3: r.CH})
+        # 0x80150320 replaces stfs f0,0x18(r1) in the Human MH partner-request
+        # branch. The original GObj arrives in r30; the stack vector is +0x10.
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(r.moves[-1], (r.MH, r.BASE + r.symbols["start_pair"],
                                      (44.0, 30.0, 0.0)))
-        self.assertEqual(r.reg(3), r.CH)
+        self.assertEqual(r.reg(30), r.MH)
         self.assertEqual(bytes(r.u.mem_read(r.BASE, len(r.code))), r.code)
         r.run_hook(1, {3: 0x80600000, 4: 0x81700000})
-        r.run_hook(0, {3: r.CH})
+        r.u.mem_write(r.BASE, b"\0" * (len(r.code) + 16))
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertEqual(len(r.allocations), 2)
-        self.assertEqual(r.reg(3), r.CH)
+        self.assertEqual(r.reg(30), r.MH)
+
+    def test_manual_core_uses_master_p3_and_crazy_p4_player_slots(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertIn(3, r.player_slot_lookups)  # Crazy Hand is P4.
+        self.assertEqual(r.read(r.fp(r.MH) + 0x10), 385)
+        self.assertEqual(r.read(r.fp(r.CH) + 0x10), 380)
+        r.invoke("tag_anim", r.CH)
+        self.assertIn(2, r.player_slot_lookups)  # Master Hand is P3.
 
     def test_manual_animation_callback_registers_and_rearms_both_catches(self):
         r = Runtime(manual=True)
@@ -376,6 +450,65 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual([e[2] for e in creates], [r.MH, r.CH])
         resets = [e for e in r.events if e[1] == "RESET_HIT_VICTIMS"]
         self.assertEqual(len(resets), 4)
+
+    def test_manual_capture_attaches_each_fighter_without_callback_pointer_patch(self):
+        r = Runtime(manual=True)
+        r.invoke("start_pair", r.MH)
+        self.assertTrue(r.capture(r.MH, r.A))
+        self.assertTrue(r.capture(r.MH, r.B))
+        # US 1.00 ATTACH_VICTIM ABI: hand Fighter, then captured Fighter.
+        self.assertEqual(r.attachments, [
+            (r.fp(r.MH), r.fp(r.A)),
+            (r.fp(r.MH), r.fp(r.B)),
+        ])
+        for victim in (r.A, r.B):
+            self.assertEqual(r.read(r.fp(victim) + 0x21AC), 0)
+
+    def test_manual_native_nametag_writer_redirects_both_captured_hands_to_crazy_hand(self):
+        r = Runtime(manual=True)
+        self.assertTrue(r.capture(r.MH, r.A))
+        self.assertTrue(r.capture(r.CH, r.B))
+        cases = (
+            (r.A, 0, 0, (12.5, 34.0, 0.0)),
+            (r.B, 1, 1, (-22.0, 18.5, 0.0)),
+        )
+        for victim, slot, sub_fighter, position in cases:
+            fp = r.fp(victim)
+            r.u.mem_write(fp + 0x0C, bytes([slot]))
+            r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
+            r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+        r.invoke("sync_captured_slots", r.MH)
+        self.assertEqual(r.follow_calls, [r.A, r.B])
+        ch_fp = r.fp(r.CH)
+        ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
+        ch_position = r.joints[ch_joint]
+        for victim, slot, sub_fighter, _ in cases:
+            r.run_hook(3, {
+                31: r.fp(victim),
+                3: slot,
+                4: sub_fighter,
+                5: r.fp(victim) + 0xB0,
+            })
+            self.assertIn((slot, sub_fighter), r.nametag_positions)
+            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
+        get_ch = [event for event in r.events if event[1] == "GET_HAND" and event[3] == 0]
+        self.assertTrue(any(event[2] == 28 for event in get_ch))
+
+    def test_manual_native_nametag_writer_keeps_uncaptured_coordinates(self):
+        r = Runtime(manual=True)
+        fp = r.fp(r.A)
+        position = (12.5, 34.0, 0.0)
+        r.u.mem_write(fp + 0x0C, b"\\x00")
+        r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+        r.run_hook(3, {31: fp, 3: 0, 4: 0, 5: fp + 0xB0})
+        self.assertEqual(r.nametag_positions[(0, 0)], position)
+
+    def test_manual_capture_follow_callback_only_updates_captured_model(self):
+        r = Runtime(manual=True)
+        for victim in (r.A, r.B):
+            r.invoke("sync_captured_fighter", victim)
+        self.assertEqual(r.follow_calls, [r.A, r.B])
+        self.assertEqual(r.nametag_positions, {})
 
     def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
         for hand, damage in ((Runtime.MH, 42), (Runtime.CH, 51)):

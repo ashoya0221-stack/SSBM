@@ -33,7 +33,8 @@ DAT_HASHES = {
 FUNCTIONS = {
     "MASTER_MOVE": 0x80150474, "CRAZY_MOVE": 0x8015B080,
     "MASTER_IDLE": 0x801506C8, "CRAZY_IDLE": 0x8015B2D4,
-    "GET_HAND": 0x8015BA34, "CHANGE_STATE": 0x80069288,
+    "GET_HAND": 0x8015BA34, "PLAYER_GET_ENTITY": 0x80034090,
+    "CHANGE_STATE": 0x80069288,
     "ANIM_INIT": 0x8006EA48, "ANIM_REMAINING": 0x8006F0DC,
     "INIT_GRAB": 0x8007E034, "SET_GRAB_MASK": 0x8007E058,
     "CLEAR_HITBOXES": 0x8007AD14, "CREATE_HITBOX": 0x800710A8,
@@ -50,6 +51,8 @@ FUNCTIONS = {
     "TAKE_DAMAGE": 0x8006CB20, "RECORD_HIT": 0x80078648,
     "APPLY_FLOWER": 0x8007F9C4, "HIT_EFFECT": 0x80078264,
     "RESET_HIT_VICTIMS": 0x80008440,
+    "ATTACH_VICTIM": 0x800DAF1C, "CAPTURE_FOLLOW": 0x800DB018,
+    "PLAYER_SET_SLOT_POS": 0x800327A8,
 }
 
 
@@ -133,14 +136,19 @@ def expand(source, settings):
             for key, value in constants.items():
                 line = re.sub(r"\b" + key + r"\b", str(value), line)
             lines.append(line)
-    # Share repeated native call veneers. The final label is the hook's branch
-    # around its helpers/data, so keep veneers before that label's terminal nop.
+    # Keep the manual capture-follow helper after runtime_end, so its hook
+    # branch skips the veneers. Short standalone snippets (selector/request/
+    # reset hooks) have no runtime_end label and retain the original tail slot.
     veneers = []
     for name in sorted(thunks):
         value = constants[name]
         veneers += [f"native_{name}:", f"lis 12,{value >> 16}",
                     f"ori 12,12,{value & 0xFFFF}", "mtctr 12", "bctr"]
-    lines[-2:-2] = veneers
+    if "runtime_end:" in lines:
+        tail = lines.index("runtime_end:")
+        lines[tail:tail] = veneers
+    else:
+        lines[-2:-2] = veneers
     labels, pc = {}, 0
     for line in lines:
         if line.endswith(":"):
@@ -193,13 +201,62 @@ def build(settings, force_combo=False, manual=False):
                 and 1 <= settings[hand]["throw_damage"] <= 1023):
             raise ValueError("invalid damage or element")
     source = (ROOT / "patches/tagtsukamu.s").read_text()
-    hook = 0x8015A114 if manual else 0x8014FB2C
+    if not manual:
+        # Keep the established CPU v4 runtime unchanged: remove the Human-only
+        # attachment and Player nametag callback while retaining get_slots.
+        manual_follow = (
+            "bl get_slots\n"
+            "mr 26,8\n"
+            "mr 27,9\n"
+            "lwz 10,0x1a58(8)\n"
+            "cmpwi 10,0\n"
+            "beq on_grab_slots_ready\n"
+            "lwz 11,0x2c(10)\n"
+            "mr 3,8\n"
+            "mr 4,11\n"
+            "CALL ATTACH_VICTIM\n"
+            "mr 8,26\n"
+            "mr 9,27\n"
+            "on_grab_slots_ready:\n"
+        )
+        if source.count(manual_follow) != 1:
+            raise ValueError("manual capture-follow block is missing")
+        if source.count("runtime_end:\nnop\nb runtime_exit\n") != 1:
+            raise ValueError("manual capture-follow runtime tail is missing")
+        source = source.replace(manual_follow, "bl get_slots\n", 1)
+        start = source.index("runtime_end:\nnop\nb runtime_exit\n")
+        end_marker = "runtime_exit:\nnop"
+        end = source.index(end_marker, start) + len(end_marker)
+        source = source[:start] + "runtime_end:\nnop" + source[end:]
+    hook = 0x80150320 if manual else 0x8014FB2C
     if manual:
-        _, body = source.split("start_pair:\n", 1)
-        entry = (ROOT / "patches/manual_entry.s").read_text()
+        # The tested Human path is two-stage: 4P starts CH and leaves request
+        # 380 pending; 3P's MH input handler then reaches its partner-request
+        # branch at 0x80150320. Reuse its original GObj and vector stack ABI.
+        entry, body = source.split("start_pair:\n", 1)
+        replacements = (
+            ("stfs 0,0x34(1)", "stfs 0,0x18(1)"),
+            ("mr 3,28", "mr 3,30"),
+            ("addi 5,1,0x8c", "addi 5,1,0x70"),
+        )
+        for old, new in replacements:
+            if entry.count(old) != 1:
+                raise ValueError(f"manual MH entry expected exactly one {old!r}")
+            entry = entry.replace(old, new, 1)
         source = entry + "start_pair:\n" + body
+        if source.count("li 3,28\nCALL GET_HAND") != 2 or source.count(
+                "li 3,27\nCALL GET_HAND") != 1:
+            raise ValueError("unexpected manual MH/CH lookup call sites")
+        # Normal Versus slots are P3=2 (Master Hand) and P4=3 (Crazy Hand).
+        source = source.replace("li 3,28\nCALL GET_HAND",
+                                "li 3,3\nCALL PLAYER_GET_ENTITY")
+        source = source.replace("li 3,27\nCALL GET_HAND",
+                                "li 3,2\nCALL PLAYER_GET_ENTITY")
+        if source.count("lwz 0,0x2250(28)\ncmpwi 0,380\nbne start_cancel") != 1:
+            raise ValueError("US 1.00 manual pair gate must remain request 380")
         source = source.replace("tag_anim:\nENTER\nmr 31,3\n",
-                                "tag_anim:\nENTER\nmr 31,3\nbl manual_grab_tick\n")
+                                "tag_anim:\nENTER\nmr 31,3\n"
+                                "bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick\n")
         source = source.replace("# Data use no absolute relocations.",
                                 (ROOT / "patches/manual_grab.s").read_text()
                                 + "\n# Data use no absolute relocations.")
@@ -245,7 +302,8 @@ def build(settings, force_combo=False, manual=False):
         nop
     """
     requester, _, _ = assemble(request, settings)
-    # Guards target untouched prologues; hooks themselves change after installation.
+    # Guards target untouched prologues; manual nametag hook guard is appended
+    # after C2 blocks so the test/runtime parser sees a contiguous hook list.
     lines = ["2014F8E0 7C0802A6", "20155A84 7C0802A6"]
     if not manual:
         lines += c2(0x80155CCC, selector)
@@ -257,19 +315,80 @@ def build(settings, force_combo=False, manual=False):
     back = struct.pack(">4I", 0x3D800000 | (resume >> 16),
                        0x618C0000 | (resume & 0xFFFF), 0x7D8903A6, 0x4E800420)
     packed = pack_runtime(runtime + back)
+    # The direct MH hook uses r30 for its incoming GObj; ENTER/LEAVE_HOOK
+    # preserve r26-r31. r3 is intentionally not part of this callback ABI.
     loader, loader_labels, _ = assemble(
-        loader_source(packed, len(runtime) + len(back), preserve_r3=manual), settings)
+        loader_source(packed, len(runtime) + len(back), preserve_r3=False), settings)
     reset, sound_mask = helper_sources(loader_labels["loaded_core"], hook)
     reset_code, _, _ = assemble(reset, settings)
     sound_code, _, _ = assemble(sound_mask, settings)
     lines += c2(hook, loader)
     lines += c2(0x80373574, reset_code)
     lines += c2(0x80026FAC, sound_code)
+    if manual:
+        # Replace only Fighter_procPlayer's native nametag-position call.
+        # A victim's reciprocal 0x1A58 owner points to the capturing hand;
+        # either hand redirects the nametag to Crazy Hand's animated root joint.
+        # All other Fighters retain the original Fighter+0xB0 coordinates.
+        nametag_hook = """
+            stwu 1,-0x30(1)
+            mflr 0
+            stw 0,0x34(1)
+            stw 3,0x08(1)
+            stw 4,0x0c(1)
+            stw 5,0x10(1)
+            lwz 8,0x1a58(31)
+            cmpwi 8,0
+            beq nametag_keep_original
+            lwz 8,0x2c(8)
+            lwz 0,4(8)
+            cmpwi 0,27
+            beq nametag_redirect
+            cmpwi 0,28
+            bne nametag_keep_original
+        nametag_redirect:
+            li 3,28
+            CALL GET_HAND
+            cmpwi 3,0
+            beq nametag_keep_original
+            lwz 3,0x2c(3)
+            lwz 3,0x5e8(3)
+            lwz 3,0x120(3)
+            li 4,0
+            addi 5,1,0x20
+            CALL JOINT_WORLD
+            lwz 3,0x08(1)
+            lwz 4,0x0c(1)
+            addi 5,1,0x20
+            b nametag_set_pos
+        nametag_keep_original:
+            lwz 3,0x08(1)
+            lwz 4,0x0c(1)
+            lwz 5,0x10(1)
+        nametag_set_pos:
+            CALL PLAYER_SET_SLOT_POS
+            lwz 0,0x34(1)
+            mtlr 0
+            addi 1,1,0x30
+        nametag_hook_end:
+        nop
+        """
+        nametag_hook_code, _, _ = assemble(nametag_hook, settings)
+        lines += c2(0x8006D91C, nametag_hook_code)
+        lines.append("2016D91C 4BFC4E8D")
     lines.append("E0000000 80008000")
     # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
     # and the 8-byte code-list header. Do not silently emit an oversized code.
-    if len(lines) * 8 > 3256:
-        raise ValueError("patch exceeds Dolphin's default Gecko code-list capacity")
+    code_list_bytes = len(lines) * 8
+    if code_list_bytes > 3256:
+        raise ValueError(f"patch exceeds Dolphin's default Gecko code-list capacity: {code_list_bytes} > 3256 bytes")
+    # The user's supplied GALE01.ini also enables the 88-byte widescreen Gecko
+    # code. Reserve that space in the manual build so both codes fit together.
+    if manual and code_list_bytes + 88 > 3256:
+        raise ValueError(
+            f"manual patch plus existing widescreen code exceeds Gecko capacity: "
+            f"{code_list_bytes} + 88 > 3256 bytes"
+        )
     return "\n".join(lines) + "\n", runtime, symbols, expanded
 
 

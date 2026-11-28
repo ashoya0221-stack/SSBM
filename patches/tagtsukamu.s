@@ -113,6 +113,18 @@ LEAVE
 on_grab:
 ENTER
 bl get_slots
+mr 26,8
+mr 27,9
+lwz 10,0x1a58(8)
+cmpwi 10,0
+beq on_grab_slots_ready
+lwz 11,0x2c(10)
+mr 3,8
+mr 4,11
+CALL ATTACH_VICTIM
+mr 8,26
+mr 9,27
+on_grab_slots_ready:
 lwz 10,0x1a58(8)
 lwz 0,0(9)
 cmpw 0,10
@@ -773,4 +785,15 @@ THROW_DATA_MH
 throw_ch:
 THROW_DATA_CH
 runtime_end:
+nop
+b runtime_exit
+
+# Per-victim model sync only. The native Fighter player-update callsite
+# redirects the nametag coordinate while this victim remains captured.
+sync_captured_fighter:
+ENTER
+mr 31,3
+CALL CAPTURE_FOLLOW
+LEAVE
+runtime_exit:
 nop
