@@ -305,8 +305,6 @@ def build(settings, force_combo=False, manual=False):
     # Preserve the known US 1.00 call instruction before installing the
     # capture-only nametag redirect at Fighter_procPlayer.
     lines = ["2014F8E0 7C0802A6", "20155A84 7C0802A6"]
-    if manual:
-        lines.append("2016D91C 4BFC4E8D")
     else:
         lines += c2(0x80155CCC, selector)
         lines += c2(0x80155FDC, requester)
@@ -328,44 +326,56 @@ def build(settings, force_combo=False, manual=False):
     lines += c2(0x80373574, reset_code)
     lines += c2(0x80026FAC, sound_code)
     if manual:
-        # Fighter_procPlayer normally rewrites Player's nametag position from
-        # Fighter+0xB0 every update (call at 0x8006D91C). Tail into the runtime
-        # helper only after its main loader has installed the core; otherwise
-        # tail-call the original native Player_SetSlotPos unchanged.
-        nametag_dispatch = f"""
-            lis 8,0x8015
-            ori 8,8,0x0320
-            lwz 9,0(8)
-            srwi 10,9,26
-            cmpwi 10,18
-            bne nametag_native_call
-            slwi 9,9,6
-            srawi 9,9,6
-            add 8,8,9
-            lwz 29,{loader_labels["loaded_core"]}(8)
-            cmpwi 29,0
-            beq nametag_native_call
-            addi 12,29,{symbols["override_nametag_position"]}
-            mr 6,31
-            mr 7,29
-            lis 11,0x8006
-            ori 11,11,0xd920
-            mtlr 11
-            mtctr 12
-            bctr
-        nametag_native_call:
-            lis 11,0x8006
-            ori 11,11,0xd920
-            mtlr 11
-            lis 12,0x8003
-            ori 12,12,0x27a8
-            mtctr 12
-            bctr
-        nametag_dispatch_end:
+        # Replace only Fighter_procPlayer's native nametag-position call.
+        # A victim's reciprocal 0x1A58 owner points to the capturing hand;
+        # either hand redirects the nametag to Crazy Hand's animated root joint.
+        # All other Fighters retain the original Fighter+0xB0 coordinates.
+        nametag_hook = """
+            stwu 1,-0x30(1)
+            mflr 0
+            stw 0,0x34(1)
+            stw 3,0x08(1)
+            stw 4,0x0c(1)
+            stw 5,0x10(1)
+            lwz 8,0x1a58(31)
+            cmpwi 8,0
+            beq nametag_keep_original
+            lwz 8,0x2c(8)
+            lwz 0,4(8)
+            cmpwi 0,27
+            beq nametag_redirect
+            cmpwi 0,28
+            bne nametag_keep_original
+        nametag_redirect:
+            li 3,28
+            CALL GET_HAND
+            cmpwi 3,0
+            beq nametag_keep_original
+            lwz 3,0x2c(3)
+            lwz 3,0x5e8(3)
+            lwz 3,0x120(3)
+            li 4,0
+            addi 5,1,0x20
+            CALL JOINT_WORLD
+            lwz 3,0x08(1)
+            lwz 4,0x0c(1)
+            addi 5,1,0x20
+            b nametag_set_pos
+        nametag_keep_original:
+            lwz 3,0x08(1)
+            lwz 4,0x0c(1)
+            lwz 5,0x10(1)
+        nametag_set_pos:
+            CALL PLAYER_SET_SLOT_POS
+            lwz 0,0x34(1)
+            mtlr 0
+            addi 1,1,0x30
+        nametag_hook_end:
         nop
         """
-        nametag_dispatch_code, _, _ = assemble(nametag_dispatch, settings)
-        lines += c2(0x8006D91C, nametag_dispatch_code)
+        nametag_hook_code, _, _ = assemble(nametag_hook, settings)
+        lines += c2(0x8006D91C, nametag_hook_code)
+        lines.append("2016D91C 4BFC4E8D")
     lines.append("E0000000 80008000")
     # Dolphin 5.0-21460's default 6 KiB handler area, less its 2880-byte handler
     # and the 8-byte code-list header. Do not silently emit an oversized code.
