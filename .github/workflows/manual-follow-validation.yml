@@ -59,7 +59,7 @@ jobs:
           report = {
               "status": "assembled; PPC unit tests passed before this step",
               "hook": "0x80150320",
-              "control_flow": "4P Y+Left -> CH wait -> 3P Y+Up -> MH move",
+              "control_flow": "4P Y+Right (0x0801) -> CH wait -> 3P Y+Up (0x0808) -> MH move",
               "v6_arrival_hook_present": "C215A114" in gecko,
               "runtime_bytes": len(runtime),
               "packed_runtime_bytes": len(packed),
