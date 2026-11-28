@@ -302,10 +302,10 @@ def build(settings, force_combo=False, manual=False):
         nop
     """
     requester, _, _ = assemble(request, settings)
-    # Preserve the known US 1.00 call instruction before installing the
-    # capture-only nametag redirect at Fighter_procPlayer.
+    # Guards target untouched prologues; manual nametag hook guard is appended
+    # after C2 blocks so the test/runtime parser sees a contiguous hook list.
     lines = ["2014F8E0 7C0802A6", "20155A84 7C0802A6"]
-    else:
+    if not manual:
         lines += c2(0x80155CCC, selector)
         lines += c2(0x80155FDC, requester)
     # The core lives in game-allocated memory and expires with the native heap.
