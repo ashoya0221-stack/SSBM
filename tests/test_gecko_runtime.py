@@ -327,26 +327,27 @@ class EncodingTests(unittest.TestCase):
     def test_manual_build_uses_the_3p_master_human_hook(self):
         text, _, symbols, expanded = build(SETTINGS, manual=True)
         self.assertIn("C2150320", text)
+        self.assertIn("C206D91C", text)
         self.assertNotIn("C215A114", text)
         self.assertIn("sync_captured_fighter", symbols)
+        self.assertIn("override_nametag_position", symbols)
         self.assertIn("on_grab", symbols)
         self.assertIn("mr 3,30", expanded)
-        self.assertIn("PLAYER_GET_ENTITY", expanded)
         self.assertIn("bl sync_captured_slots\nmr 3,31\nbl manual_grab_tick", expanded)
 
     def test_cpu_build_does_not_include_manual_capture_follow_helpers(self):
         _, _, symbols, _ = build(SETTINGS, manual=False)
         self.assertNotIn("attach_captured", symbols)
         self.assertNotIn("sync_captured_fighter", symbols)
+        self.assertNotIn("override_nametag_position", symbols)
 
-    def test_manual_nametag_uses_crazy_hand_joint_but_keeps_byte_sized_player_slot(self):
-        _, _, _, expanded = build(SETTINGS, manual=True)
-        self.assertIn("lbz 29,0x0c(30)\nlbz 28,0x221f(30)\n"
-                      "rlwinm 28,28,29,31,31", expanded)
-        self.assertIn("li 3,3\nbl native_PLAYER_GET_ENTITY", expanded)
-        self.assertIn("li 4,0\naddi 5,1,0x30\nbl native_JOINT_WORLD", expanded)
-        # This single call is emitted as an absolute native address, not a thunk.
-        self.assertIn("ori 12,12,10152\nmtctr 12\nbctrl", expanded)
+    def test_manual_nametag_redirect_is_installed_at_native_fighter_update(self):
+        text, _, symbols, expanded = build(SETTINGS, manual=True)
+        self.assertIn("C206D91C", text)
+        self.assertIn("override_nametag_position", symbols)
+        self.assertIn("PLAYER_SET_SLOT_POS", expanded)
+        self.assertIn("victim_slots", symbols)
+        self.assertIn("ori 11,11,55584", expanded)  # return to 0x8006D920
 
     def test_manual_empty_capture_skips_native_attachment(self):
         r = Runtime(manual=True)
@@ -466,9 +467,10 @@ class RuntimeTests(unittest.TestCase):
         for victim in (r.A, r.B):
             self.assertEqual(r.read(r.fp(victim) + 0x21AC), 0)
 
-    def test_manual_per_frame_sync_forces_both_hands_nametags_to_crazy_hand(self):
+    def test_manual_native_fighter_update_redirects_both_captured_nametags(self):
         r = Runtime(manual=True)
-        r.invoke("start_pair", r.MH)
+        # Install the runtime via the same 3P MH hook that starts the move.
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
         self.assertTrue(r.capture(r.MH, r.A))
         self.assertTrue(r.capture(r.CH, r.B))
         cases = (
@@ -482,35 +484,37 @@ class RuntimeTests(unittest.TestCase):
             r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
         r.invoke("sync_captured_slots", r.MH)
         r.invoke("sync_captured_slots", r.CH)
+        self.assertEqual(r.follow_calls, [r.A, r.B])
         ch_fp = r.fp(r.CH)
         ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
         ch_position = r.joints[ch_joint]
         for victim, slot, sub_fighter, _ in cases:
+            r.run_hook(3, {
+                31: r.fp(victim),
+                3: slot,
+                4: sub_fighter,
+                5: r.fp(victim) + 0xB0,
+            })
             self.assertIn((slot, sub_fighter), r.nametag_positions)
             self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
-        self.assertEqual(r.follow_calls, [r.A, r.B])
         self.assertIn(3, r.player_slot_lookups)
 
-    def test_manual_capture_callback_forces_each_nametag_to_crazy_hand(self):
+    def test_manual_native_fighter_update_keeps_uncaptured_coordinates(self):
         r = Runtime(manual=True)
-        ch_fp = r.fp(r.CH)
-        ch_joint = r.read(r.read(ch_fp + 0x5E8) + 0x120)
-        ch_position = r.joints[ch_joint]
-        cases = (
-            (r.A, 0, 0, (12.5, 34.0, 0.0)),
-            (r.B, 1, 1, (-22.0, 18.5, 0.0)),
-        )
-        for victim, slot, sub_fighter, position in cases:
-            fp = r.fp(victim)
-            r.u.mem_write(fp + 0x0C, bytes([slot]))
-            r.u.mem_write(fp + 0x221F, bytes([0x08 if sub_fighter else 0]))
-            r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+        r.run_hook(0, {30: r.MH}, (0x10, (44.0, 30.0, 0.0)))
+        fp = r.fp(r.A)
+        position = (12.5, 34.0, 0.0)
+        r.u.mem_write(fp + 0x0C, b"\\x00")
+        r.u.mem_write(fp + 0xB0, struct.pack(">3f", *position))
+        r.run_hook(3, {31: fp, 3: 0, 4: 0, 5: fp + 0xB0})
+        self.assertEqual(r.nametag_positions[(0, 0)], position)
+
+    def test_manual_capture_follow_callback_only_updates_captured_model(self):
+        r = Runtime(manual=True)
+        for victim in (r.A, r.B):
             r.invoke("sync_captured_fighter", victim)
-            self.assertEqual(r.follow_calls[-1], victim)
-            self.assertIn((slot, sub_fighter), r.nametag_positions,
-                          f"nametag calls were {r.nametag_positions}")
-            self.assertEqual(r.nametag_positions[(slot, sub_fighter)], ch_position)
-        self.assertEqual(r.player_slot_lookups.count(3), 2)
+        self.assertEqual(r.follow_calls, [r.A, r.B])
+        self.assertEqual(r.nametag_positions, {})
 
     def test_manual_edition_keeps_v4_damage_audio_and_two_victim_release(self):
         for hand, damage in ((Runtime.MH, 42), (Runtime.CH, 51)):
