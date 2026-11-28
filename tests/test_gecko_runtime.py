@@ -5,6 +5,7 @@ import struct
 import unittest
 
 from tools.build_gecko import ROOT, FUNCTIONS, build, c2, data_words
+from tools.packed_runtime import pack_runtime, unpack_runtime, _pack_runtime_greedy
 
 try:
     from unicorn import Uc, UC_ARCH_PPC, UC_MODE_PPC32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
@@ -358,6 +359,23 @@ class EncodingTests(unittest.TestCase):
             lines = c2(0x80100000, b"\x60\x00\x00\x00" * count)
             self.assertEqual(int(lines[0].split()[1], 16), len(lines) - 1)
             self.assertTrue(lines[-1].endswith("00000000"))
+
+
+
+class RuntimePackingTests(unittest.TestCase):
+    def test_short_and_overlapping_backreferences_roundtrip(self):
+        samples = (
+            b"abc" * 257,
+            b"ABCD" * 400 + b"XYZ" * 80,
+            bytes(range(256)) * 5,
+            (b"\\x7c\\x08\\x02\\xa6\\x94\\x21\\xff\\xa0" * 180)
+            + bytes(range(128)),
+        )
+        for sample in samples:
+            with self.subTest(size=len(sample)):
+                packed = pack_runtime(sample)
+                self.assertEqual(unpack_runtime(packed, len(sample)), sample)
+                self.assertLessEqual(len(packed), len(_pack_runtime_greedy(sample)))
 
 
 @unittest.skipUnless(AVAILABLE, "install requirements-dev.txt to execute PPC tests")
