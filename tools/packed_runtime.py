@@ -5,7 +5,7 @@ heap, flushes executable memory, and invalidates its pointer before heap reset.
 """
 
 
-def pack_runtime(data):
+def _pack_runtime_greedy(data):
     out, literals = bytearray(), bytearray()
 
     def flush():
@@ -39,6 +39,113 @@ def pack_runtime(data):
                 flush()
     flush()
     return bytes(out)
+
+
+def pack_runtime(data):
+    """Pack with minimum-cost LZ parsing; keep the older encoder as a fallback.
+
+    Literal packets carry one header per 1..128 bytes. Backreferences cost three
+    bytes and support lengths 3..130. Dynamic programming accounts for literal
+    packet headers, so a locally shorter match cannot make the complete stream
+    larger through extra packet fragmentation.
+    """
+    data = bytes(data)
+    if not data:
+        return b""
+
+    size = len(data)
+    inf = size * 4 + 16
+    costs = [[inf] * 128 for _ in range(size + 1)]
+    parents = [[None] * 128 for _ in range(size + 1)]
+    costs[0][0] = 0
+    positions = {}
+
+    for pos in range(size):
+        row = costs[pos]
+        next_row = costs[pos + 1]
+
+        # Add one literal. The packet header is paid when its first literal
+        # enters the packet; a 128-byte packet then closes automatically.
+        for run, current_cost in enumerate(row):
+            if current_cost == inf:
+                continue
+            if run == 0:
+                next_run, extra = 1, 2
+            elif run == 127:
+                next_run, extra = 0, 1
+            else:
+                next_run, extra = run + 1, 1
+            candidate_cost = current_cost + extra
+            if candidate_cost < next_row[next_run]:
+                next_row[next_run] = candidate_cost
+                parents[pos + 1][next_run] = (pos, run, None)
+
+        # A backreference resets any open literal packet. Its three-byte cost
+        # is independent of the current literal run length.
+        if pos + 3 <= size:
+            key = data[pos:pos + 3]
+            best_length, best_distance = 0, 0
+            max_length = min(130, size - pos)
+            for previous in reversed(positions.get(key, ())):
+                length = 3
+                while length < max_length and data[previous + length] == data[pos + length]:
+                    length += 1
+                if length > best_length:
+                    best_length = length
+                    best_distance = pos - previous
+                    if length == max_length:
+                        break
+
+            if best_length >= 3:
+                best_run = min(range(128), key=row.__getitem__)
+                best_cost = row[best_run] + 3
+                if row[best_run] != inf:
+                    for length in range(3, best_length + 1):
+                        target = pos + length
+                        if best_cost < costs[target][0]:
+                            costs[target][0] = best_cost
+                            parents[target][0] = (
+                                pos, best_run, (length, best_distance)
+                            )
+            positions.setdefault(key, []).append(pos)
+
+    final_run = min(range(128), key=costs[size].__getitem__)
+    actions = []
+    pos, run = size, final_run
+    while pos:
+        parent = parents[pos][run]
+        if parent is None:
+            raise ValueError("LZ parser could not reconstruct its shortest path")
+        previous, previous_run, match = parent
+        if match is None:
+            actions.append((0, data[previous]))
+        else:
+            actions.append((1, match[0], match[1]))
+        pos, run = previous, previous_run
+    actions.reverse()
+
+    out, literals = bytearray(), bytearray()
+
+    def flush():
+        if literals:
+            out.append(len(literals) - 1)
+            out.extend(literals)
+            literals.clear()
+
+    for action in actions:
+        if action[0] == 0:
+            literals.append(action[1])
+            if len(literals) == 128:
+                flush()
+        else:
+            flush()
+            length, distance = action[1], action[2]
+            out.extend((0x80 | (length - 3), distance >> 8, distance & 255))
+    flush()
+
+    packed = bytes(out)
+    greedy = _pack_runtime_greedy(data)
+    return packed if len(packed) <= len(greedy) else greedy
 
 
 def unpack_runtime(data, size):
